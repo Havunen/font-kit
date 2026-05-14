@@ -1,6 +1,6 @@
 [package]
 name = "font-kit"
-version = "0.14.2"
+version = "0.14.3"
 authors = ["Patrick Walton <pcwalton@mimiga.net>"]
 description = "A cross-platform font loading library"
 license = "MIT OR Apache-2.0"
@@ -13,7 +13,7 @@ rust-version = "1.77"
 
 [features]
 default = ["source"]
-loader-freetype = ["freetype"]
+loader-freetype = ["freetype-sys"]
 loader-freetype-default = ["loader-freetype"]
 source-fontconfig = ["yeslogic-fontconfig-sys"]
 source-fontconfig-dlopen = ["yeslogic-fontconfig-sys/dlopen"]
@@ -24,15 +24,11 @@ source = []
 bitflags = "2.4"
 byteorder = "1.2"
 float-ord = "0.3"
-lazy_static = "1.1"
 libc = "0.2"
 log = "0.4.4"
 pathfinder_geometry = "0.5"
-pathfinder_simd = "0.5.4"
-
-[dependencies.freetype]
-version = "0.7"
-optional = true
+pathfinder_simd = "0.5.5"
+freetype-sys = {version = "0.23", optional = true}
 
 [dependencies.yeslogic-fontconfig-sys]
 version = "6.0"
@@ -58,7 +54,7 @@ core-graphics = "0.25"
 core-text = "21"
 
 [target.'cfg(not(any(target_family = "windows", target_os = "macos", target_os = "ios")))'.dependencies]
-freetype-sys = "0.20"
+freetype-sys = "0.23"
 
 [target.'cfg(not(any(target_family = "windows", target_os = "macos", target_os = "ios", target_arch = "wasm32", target_env = "ohos")))'.dependencies]
 yeslogic-fontconfig-sys = "6.0"
