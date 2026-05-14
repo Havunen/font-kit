@@ -21,13 +21,13 @@ source-fontconfig-default = ["source-fontconfig"]
 source = []
 
 [dependencies]
-bitflags = "2.4"
-byteorder = "1.2"
+bitflags = "2.11"
+byteorder = "1.5"
 float-ord = "0.3"
 libc = "0.2"
-log = "0.4.4"
+log = "0.4.29"
 pathfinder_geometry = "0.5"
-pathfinder_simd = "0.5.5"
+pathfinder_simd = "0.5.6"
 freetype-sys = {version = "0.23", optional = true}
 
 [dependencies.yeslogic-fontconfig-sys]
@@ -37,11 +37,11 @@ optional = true
 [dev-dependencies]
 clap = "4"
 colored = "2"
-pbr = "1.0"
+pbr = "1.1"
 prettytable-rs = "0.10"
 
 [target.'cfg(target_family = "windows")'.dependencies]
-dwrote = { version = "^0.11.3", default-features = false }
+dwrote = { version = "^0.11.5", default-features = false }
 
 [target.'cfg(target_family = "windows")'.dependencies.winapi]
 version = "0.3"
@@ -51,7 +51,7 @@ features = ["dwrite", "minwindef", "sysinfoapi", "winbase", "winnt"]
 core-foundation = "0.10"
 # Upgraded to 0.25 to match core-text 21.1.0 which requires core-graphics 0.25
 core-graphics = "0.25"
-core-text = "21"
+core-text = "22"
 
 [target.'cfg(not(any(target_family = "windows", target_os = "macos", target_os = "ios")))'.dependencies]
 freetype-sys = "0.23"
@@ -63,4 +63,4 @@ yeslogic-fontconfig-sys = "6.0"
 dirs = "6.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-walkdir = "2.1"
+walkdir = "2.5"
