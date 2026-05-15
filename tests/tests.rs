@@ -53,6 +53,21 @@ fn load_known_system_font() -> Font {
         .unwrap()
 }
 
+#[cfg(all(feature = "source", target_os = "macos"))]
+fn assert_system_font_handle_exposes_raw_data(handle: &font_kit::handle::Handle) {
+    let font = handle.load().unwrap();
+    let font_data = font.copy_font_data().unwrap_or_else(|| {
+        panic!("system font handle loaded successfully but did not expose raw font data")
+    });
+    assert!(
+        matches!(
+            Font::analyze_bytes(font_data),
+            Ok(FileType::Single | FileType::Collection(_))
+        ),
+        "system font handle returned raw data that the default loader could not analyze"
+    );
+}
+
 const OPENTYPE_TABLE_TAG_HEAD: u32 = 0x68656164;
 
 #[cfg(feature = "source")]
@@ -99,6 +114,31 @@ pub fn load_font_from_memory() {
     file.read_to_end(&mut font_data).unwrap();
     let font = Font::from_bytes(Arc::new(font_data), 0).unwrap();
     assert_eq!(font.postscript_name().unwrap(), TEST_FONT_POSTSCRIPT_NAME);
+}
+
+#[cfg(all(feature = "source", target_os = "macos"))]
+#[test]
+pub fn macos_selected_system_font_exposes_raw_font_data() {
+    let handle = SystemSource::new()
+        .select_best_match(&[FamilyName::SansSerif], &Properties::new())
+        .unwrap();
+    assert_system_font_handle_exposes_raw_data(&handle);
+}
+
+#[cfg(all(feature = "source", target_os = "macos"))]
+#[test]
+pub fn macos_system_family_handles_expose_raw_font_data() {
+    let family = SystemSource::new()
+        .select_family_by_name(KNOWN_SYSTEM_FONT_NAME)
+        .unwrap();
+
+    assert!(
+        !family.fonts().is_empty(),
+        "expected at least one font in the known macOS system family"
+    );
+    for handle in family.fonts() {
+        assert_system_font_handle_exposes_raw_data(handle);
+    }
 }
 
 #[test]

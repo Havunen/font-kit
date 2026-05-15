@@ -143,3 +143,57 @@ impl Source for DirectWriteSource {
         self
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dwrote::CustomFontCollectionLoaderImpl;
+    use dwrote::FontFile as DWriteFontFile;
+    use std::fs::File;
+    use std::io::Read;
+    use std::panic::{self, AssertUnwindSafe};
+    use std::sync::Arc;
+
+    fn dwrite_font_from_in_memory_test_font() -> DWriteFont {
+        let mut file = File::open("resources/tests/eb-garamond/EBGaramond12-Regular.ttf").unwrap();
+        let mut bytes = vec![];
+        file.read_to_end(&mut bytes).unwrap();
+
+        let font_file = DWriteFontFile::new_from_buffer(Arc::new(bytes)).unwrap();
+        let collection_loader =
+            CustomFontCollectionLoaderImpl::new(std::slice::from_ref(&font_file));
+        let collection = DWriteFontCollection::from_loader(collection_loader);
+        let family = collection.families_iter().next().unwrap();
+        family.font(0).unwrap()
+    }
+
+    #[test]
+    fn directwrite_source_handles_non_local_font_files_without_panicking() {
+        let dwrite_font = dwrite_font_from_in_memory_test_font();
+        let source = DirectWriteSource::new();
+        let result = panic::catch_unwind(AssertUnwindSafe(|| {
+            source.create_handle_from_dwrite_font(dwrite_font)
+        }));
+
+        let handle = result.expect("DirectWrite source should not panic on non-local font files");
+        handle
+            .load()
+            .expect("handle produced for a non-local DirectWrite font should remain loadable");
+    }
+
+    #[test]
+    fn directwrite_source_does_not_unwrap_recoverable_file_api_failures() {
+        let source = include_str!("directwrite.rs");
+        let files_unwrap = concat!("dwrite_font_face.files()", ".unwrap()");
+        let path_unwrap = concat!("font_file_path()", ".unwrap()");
+
+        assert!(
+            !source.contains(files_unwrap),
+            "DirectWrite FontFace::files returns Result and should not be unwrapped"
+        );
+        assert!(
+            !source.contains(path_unwrap),
+            "DirectWrite FontFile::font_file_path returns Result and should not be unwrapped"
+        );
+    }
+}

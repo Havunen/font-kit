@@ -891,6 +891,34 @@ impl Loader for Font {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn directwrite_loader_does_not_unwrap_recoverable_table_or_file_api_failures() {
+        let source = include_str!("directwrite.rs");
+        let metrics_table_unwrap = concat!(
+            ".font_table(OPENTYPE_TABLE_TAG_HEAD.swap_bytes())",
+            "\n",
+            "                    .unwrap()"
+        );
+        let files_unwrap = concat!("self.dwrite_font_face.files()", ".unwrap()");
+        let bytes_unwrap = concat!("file.font_file_bytes()", ".unwrap()");
+
+        assert!(
+            !source.contains(metrics_table_unwrap),
+            "DirectWrite FontFace::font_table returns Result and should not be unwrapped"
+        );
+        assert!(
+            !source.contains(files_unwrap),
+            "DirectWrite FontFace::files returns Result and should not be unwrapped"
+        );
+        assert!(
+            !source.contains(bytes_unwrap),
+            "DirectWrite FontFile::font_file_bytes returns Result and should not be unwrapped"
+        );
+    }
+}
+
 #[derive(Clone)]
 struct OutlineCanonicalizer(Arc<Mutex<OutlineCanonicalizerInfo>>);
 
