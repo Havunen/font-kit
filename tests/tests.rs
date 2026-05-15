@@ -37,16 +37,21 @@ static FILE_PATH_EB_GARAMOND_TTF: &str = "resources/tests/eb-garamond/EBGaramond
 static FILE_PATH_INCONSOLATA_TTF: &str = "resources/tests/inconsolata/Inconsolata-Regular.ttf";
 
 #[cfg(not(target_os = "linux"))]
-static KNOWN_SYSTEM_FONT_NAME: &'static str = "Arial";
+static KNOWN_SYSTEM_FONT_NAME: &str = "Arial";
 #[cfg(target_os = "linux")]
 static KNOWN_SYSTEM_FONT_NAME: &str = "DejaVu Sans";
 
-static SFNT_VERSIONS: [[u8; 4]; 4] = [
-    [0x00, 0x01, 0x00, 0x00],
-    [b'O', b'T', b'T', b'O'],
-    [b't', b'r', b'u', b'e'],
-    [b't', b'y', b'p', b'1'],
-];
+#[cfg(feature = "source")]
+fn load_known_system_font() -> Font {
+    SystemSource::new()
+        .select_best_match(
+            &[FamilyName::Title(KNOWN_SYSTEM_FONT_NAME.to_string())],
+            &Properties::new(),
+        )
+        .unwrap()
+        .load()
+        .unwrap()
+}
 
 const OPENTYPE_TABLE_TAG_HEAD: u32 = 0x68656164;
 
@@ -116,11 +121,7 @@ pub fn analyze_bytes() {
 #[cfg(feature = "source")]
 #[test]
 pub fn get_glyph_for_char() {
-    let font = SystemSource::new()
-        .select_best_match(&[FamilyName::SansSerif], &Properties::new())
-        .unwrap()
-        .load()
-        .unwrap();
+    let font = load_known_system_font();
     let glyph = font.glyph_for_char('a').expect("No glyph for char!");
     assert_eq!(glyph, 68);
 }
@@ -131,11 +132,7 @@ pub fn get_glyph_for_char() {
 ))]
 #[test]
 pub fn get_glyph_outline() {
-    let font = SystemSource::new()
-        .select_best_match(&[FamilyName::SansSerif], &Properties::new())
-        .unwrap()
-        .load()
-        .unwrap();
+    let font = load_known_system_font();
     let glyph = font.glyph_for_char('i').expect("No glyph for char!");
     let mut outline_builder = OutlineBuilder::new();
     font.outline(glyph, HintingOptions::None, &mut outline_builder)
@@ -175,11 +172,7 @@ pub fn get_glyph_outline() {
 ))]
 #[test]
 pub fn get_glyph_outline() {
-    let font = SystemSource::new()
-        .select_best_match(&[FamilyName::SansSerif], &Properties::new())
-        .unwrap()
-        .load()
-        .unwrap();
+    let font = load_known_system_font();
     let glyph = font.glyph_for_char('i').expect("No glyph for char!");
     let mut outline_builder = OutlineBuilder::new();
     font.outline(glyph, HintingOptions::None, &mut outline_builder)
@@ -221,11 +214,7 @@ pub fn get_glyph_outline() {
 ))]
 #[test]
 pub fn get_vertically_hinted_glyph_outline() {
-    let font = SystemSource::new()
-        .select_best_match(&[FamilyName::SansSerif], &Properties::new())
-        .unwrap()
-        .load()
-        .unwrap();
+    let font = load_known_system_font();
     let glyph = font.glyph_for_char('i').expect("No glyph for char!");
     let mut outline_builder = OutlineBuilder::new();
     font.outline(glyph, HintingOptions::Vertical(16.0), &mut outline_builder)
@@ -266,11 +255,7 @@ pub fn get_vertically_hinted_glyph_outline() {
 ))]
 #[test]
 pub fn get_vertically_hinted_glyph_outline() {
-    let font = SystemSource::new()
-        .select_best_match(&[FamilyName::SansSerif], &Properties::new())
-        .unwrap()
-        .load()
-        .unwrap();
+    let font = load_known_system_font();
     let glyph = font.glyph_for_char('i').expect("No glyph for char!");
     let mut outline_builder = OutlineBuilder::new();
     font.outline(glyph, HintingOptions::Vertical(16.0), &mut outline_builder)
@@ -312,11 +297,7 @@ pub fn get_vertically_hinted_glyph_outline() {
 ))]
 #[test]
 pub fn get_fully_hinted_glyph_outline() {
-    let font = SystemSource::new()
-        .select_best_match(&[FamilyName::SansSerif], &Properties::new())
-        .unwrap()
-        .load()
-        .unwrap();
+    let font = load_known_system_font();
     let glyph = font.glyph_for_char('i').expect("No glyph for char!");
     let mut outline_builder = OutlineBuilder::new();
     font.outline(glyph, HintingOptions::Full(10.0), &mut outline_builder)
@@ -475,11 +456,7 @@ pub fn get_glyph_raster_bounds() {
 ))]
 #[test]
 pub fn get_glyph_typographic_bounds() {
-    let font = SystemSource::new()
-        .select_best_match(&[FamilyName::SansSerif], &Properties::new())
-        .unwrap()
-        .load()
-        .unwrap();
+    let font = load_known_system_font();
     let glyph = font.glyph_for_char('a').expect("No glyph for char!");
     assert_eq!(
         font.typographic_bounds(glyph),
@@ -496,11 +473,7 @@ pub fn get_glyph_typographic_bounds() {
 ))]
 #[test]
 pub fn get_glyph_typographic_bounds() {
-    let font = SystemSource::new()
-        .select_best_match(&[FamilyName::SansSerif], &Properties::new())
-        .unwrap()
-        .load()
-        .unwrap();
+    let font = load_known_system_font();
     let glyph = font.glyph_for_char('a').expect("No glyph for char!");
     assert_eq!(
         font.typographic_bounds(glyph),
@@ -514,11 +487,7 @@ pub fn get_glyph_typographic_bounds() {
 #[cfg(all(feature = "source", target_family = "windows"))]
 #[test]
 pub fn get_glyph_advance_and_origin() {
-    let font = SystemSource::new()
-        .select_best_match(&[FamilyName::SansSerif], &Properties::new())
-        .unwrap()
-        .load()
-        .unwrap();
+    let font = load_known_system_font();
     let glyph = font.glyph_for_char('a').expect("No glyph for char!");
     assert_eq!(font.advance(glyph), Ok(Vector2F::new(1139.0, 0.0)));
     assert_eq!(font.origin(glyph), Ok(Vector2F::new(74.0, 1898.0)));
@@ -527,11 +496,7 @@ pub fn get_glyph_advance_and_origin() {
 #[cfg(all(feature = "source", target_os = "macos"))]
 #[test]
 pub fn get_glyph_advance_and_origin() {
-    let font = SystemSource::new()
-        .select_best_match(&[FamilyName::SansSerif], &Properties::new())
-        .unwrap()
-        .load()
-        .unwrap();
+    let font = load_known_system_font();
     let glyph = font.glyph_for_char('a').expect("No glyph for char!");
     assert_eq!(font.advance(glyph), Ok(Vector2F::new(1139.0, 0.0)));
     assert_eq!(font.origin(glyph), Ok(Vector2F::default()));
@@ -543,11 +508,7 @@ pub fn get_glyph_advance_and_origin() {
 ))]
 #[test]
 pub fn get_glyph_advance_and_origin() {
-    let font = SystemSource::new()
-        .select_best_match(&[FamilyName::SansSerif], &Properties::new())
-        .unwrap()
-        .load()
-        .unwrap();
+    let font = load_known_system_font();
     let glyph = font.glyph_for_char('a').expect("No glyph for char!");
     assert_eq!(font.advance(glyph), Ok(Vector2F::new(1255.0, 0.0)));
     assert_eq!(font.origin(glyph), Ok(Vector2F::default()));
@@ -559,11 +520,7 @@ pub fn get_glyph_advance_and_origin() {
 ))]
 #[test]
 pub fn get_font_metrics() {
-    let font = SystemSource::new()
-        .select_best_match(&[FamilyName::SansSerif], &Properties::new())
-        .unwrap()
-        .load()
-        .unwrap();
+    let font = load_known_system_font();
     let metrics = font.metrics();
     assert_eq!(metrics.units_per_em, 2048);
     assert_eq!(metrics.ascent, 1854.0);
@@ -586,11 +543,7 @@ pub fn get_font_metrics() {
 ))]
 #[test]
 pub fn get_font_metrics() {
-    let font = SystemSource::new()
-        .select_best_match(&[FamilyName::SansSerif], &Properties::new())
-        .unwrap()
-        .load()
-        .unwrap();
+    let font = load_known_system_font();
     let metrics = font.metrics();
     assert_eq!(metrics.units_per_em, 2048);
     assert_eq!(metrics.ascent, 1901.0);
@@ -697,10 +650,12 @@ pub fn rasterize_glyph_bilevel() {
         RasterizationOptions::Bilevel,
     )
     .unwrap();
-    assert!(canvas
-        .pixels
-        .iter()
-        .all(|&value| value == 0 || value == 0xff));
+    assert!(
+        canvas
+            .pixels
+            .iter()
+            .all(|&value| value == 0 || value == 0xff)
+    );
     check_L_shape(&canvas);
 }
 
@@ -734,10 +689,12 @@ pub fn rasterize_glyph_bilevel_offset() {
     )
     .unwrap();
 
-    assert!(canvas
-        .pixels
-        .iter()
-        .all(|&value| value == 0 || value == 0xff));
+    assert!(
+        canvas
+            .pixels
+            .iter()
+            .all(|&value| value == 0 || value == 0xff)
+    );
     check_L_shape(&canvas);
 }
 
@@ -785,13 +742,13 @@ pub fn rasterize_glyph_with_full_hinting() {
         top_row = &canvas.pixels[canvas.stride..(2 * canvas.stride)];
     }
 
-    assert!(top_row.iter().any(|&value| value == 0xff));
+    assert!(top_row.contains(&0xff));
     for y in (0..(canvas.size.y() as usize)).rev() {
         let bottom_row = &canvas.pixels[(y * canvas.stride)..((y + 1) * canvas.stride)];
         if bottom_row.iter().all(|&value| value == 0) {
             continue;
         }
-        assert!(bottom_row.iter().any(|&value| value == 0xff));
+        assert!(bottom_row.contains(&0xff));
         break;
     }
 }
@@ -1277,12 +1234,10 @@ fn check_curly_shape(canvas: &Canvas) {
 // return the first non-zero pixel index
 #[cfg(target_family = "windows")]
 fn stride_pixel_start(pixels: &[u8]) -> Option<u32> {
-    let mut index = 0;
-    for x in pixels {
+    for (index, x) in pixels.iter().enumerate() {
         if *x != 0 {
-            return Some(index);
+            return Some(index as u32);
         }
-        index += 1;
     }
     None
 }

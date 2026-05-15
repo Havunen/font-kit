@@ -1,4 +1,5 @@
-name: Run CI
+name: Build and Test
+
 on:
   push:
     branches: ["main"]
@@ -6,76 +7,200 @@ on:
     branches: ["**"]
   merge_group:
     types: [checks_requested]
-
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
+  CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  SHELL: /bin/bash
 
 jobs:
-  ci-linux:
-    name: Linux
-    runs-on: ubuntu-latest
+  fmt:
+    name: Format
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 2
-      - name: Setup Rust
+
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-      - name: Install
-        run: |
-          echo ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true | sudo debconf-set-selections;
-          sudo apt-get update;
-          sudo apt-get install ttf-mscorefonts-installer libfontconfig-dev;
-      - name: Build
-        run: cargo build
-      - name: Tests
-        run: cargo test
-      - name: Format
+        with:
+          components: rustfmt
+
+      - name: Check formatting
         run: cargo fmt --all -- --check
 
-  ci-macos:
-    name: macOS
-    runs-on: macos-14
+  build-test-check-clippy:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 22.04 x86_64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - name: Ubuntu 24.04 x86_64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - name: Ubuntu 22.04 aarch64
+            runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - name: Ubuntu 24.04 aarch64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          - name: macOS 14 aarch64
+            runner: macos-14
+            target: aarch64-apple-darwin
+          - name: macOS 15 x86_64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - name: macOS 15 aarch64
+            runner: macos-15
+            target: aarch64-apple-darwin
+          - name: macOS 26 x86_64
+            runner: macos-26-intel
+            target: x86_64-apple-darwin
+          - name: macOS 26 aarch64
+            runner: macos-26
+            target: aarch64-apple-darwin
+          - name: Windows Server 2022 x86_64
+            runner: windows-2022
+            target: x86_64-pc-windows-msvc
+          - name: Windows Server 2025 x86_64
+            runner: windows-2025
+            target: x86_64-pc-windows-msvc
+          - name: Windows Server 2025 VS2026 x86_64
+            runner: windows-2025-vs2026
+            target: x86_64-pc-windows-msvc
+          - name: Windows 11 aarch64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 2
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-      - name: Build
-        run: cargo build
-      - name: Tests
-        run: cargo test
 
-  ci-win:
-    name: Windows
-    runs-on: windows-2022
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust-${{ matrix.target }}
+          cache-bin: false
+
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            fontconfig \
+            fonts-dejavu-core \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            pkg-config
+
+      - name: Build
+        run: cargo build --all-targets --target ${{ matrix.target }}
+
+      - name: Test
+        run: cargo test --lib --tests --target ${{ matrix.target }}
+
+      - name: Check
+        run: cargo check --all-targets --target ${{ matrix.target }}
+
+      - name: Clippy
+        run: cargo clippy --all-targets --target ${{ matrix.target }} -- -D warnings
+
+  ubuntu-container-build:
+    name: Ubuntu ${{ matrix.ubuntu_version }} container x86_64
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:${{ matrix.ubuntu_version }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        ubuntu_version:
+          - "26.04"
+    env:
+      DEBIAN_FRONTEND: noninteractive
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Install bootstrap and system dependencies
+        run: |
+          apt-get update
+          apt-get install -y \
+            build-essential \
+            ca-certificates \
+            curl \
+            fontconfig \
+            fonts-dejavu-core \
+            git \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            pkg-config \
+            zstd
+
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 2
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-      - name: Build
-        run: cargo build
-      - name: Tests
-        run: cargo test
 
-  build_result:
+      - name: Install Rust toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- \
+            -y \
+            --profile minimal \
+            --default-toolchain stable \
+            --component clippy \
+            --target x86_64-unknown-linux-gnu
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-rust-ubuntu-${{ matrix.ubuntu_version }}-container
+          cache-bin: false
+
+      - name: Build
+        run: cargo build --all-targets --target x86_64-unknown-linux-gnu
+
+      - name: Test
+        run: cargo test --lib --tests --target x86_64-unknown-linux-gnu
+
+      - name: Check
+        run: cargo check --all-targets --target x86_64-unknown-linux-gnu
+
+      - name: Clippy
+        run: cargo clippy --all-targets --target x86_64-unknown-linux-gnu -- -D warnings
+
+  build-result:
     name: Result
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    if: always()
     needs:
-      - "ci-linux"
-      - "ci-macos"
-      - "ci-win"
+      - fmt
+      - build-test-check-clippy
+      - ubuntu-container-build
 
     steps:
+      - name: Check job results
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
+        run: exit 1
+
       - name: Mark the job as successful
         run: exit 0
-        if: success()
-      - name: Mark the job as unsuccessful
-        run: exit 1
-        if: "!success()"

@@ -178,7 +178,7 @@ impl OutlineBuilder {
     pub fn take_outline(&mut self) -> Outline {
         assert!(self.current_contour.positions.is_empty());
         self.current_contour = Contour::new();
-        mem::replace(&mut self.outline, Outline::new())
+        mem::take(&mut self.outline)
     }
 }
 
@@ -212,6 +212,6 @@ impl OutlineSink for OutlineBuilder {
     fn close(&mut self) {
         self.outline
             .contours
-            .push(mem::replace(&mut self.current_contour, Contour::new()));
+            .push(mem::take(&mut self.current_contour));
     }
 }

@@ -14,6 +14,8 @@ use font_kit::error::SelectionError;
 use font_kit::family_name::FamilyName;
 use font_kit::handle::Handle;
 use font_kit::properties::Properties;
+
+#[cfg(all(feature = "source", target_os = "linux"))]
 use std::ffi::OsStr;
 
 #[cfg(feature = "source")]
@@ -50,6 +52,7 @@ macro_rules! match_handle {
 }
 
 #[inline(always)]
+#[cfg(all(feature = "source", target_os = "linux"))]
 fn check_filename(handle: &Handle, filename: &str) {
     match *handle {
         Handle::Path {
@@ -57,6 +60,27 @@ fn check_filename(handle: &Handle, filename: &str) {
             font_index,
         } => {
             assert_eq!(path.file_name(), Some(OsStr::new(filename)));
+            assert_eq!(font_index, 0);
+        }
+        _ => panic!("Expected path handle!"),
+    }
+}
+
+#[inline(always)]
+#[cfg(all(feature = "source", target_os = "linux"))]
+fn check_filename_in(handle: &Handle, filenames: &[&str]) {
+    match *handle {
+        Handle::Path {
+            ref path,
+            font_index,
+        } => {
+            let filename = path.file_name();
+            assert!(
+                filenames
+                    .iter()
+                    .any(|expected| filename == Some(OsStr::new(expected))),
+                "expected one of {filenames:?}, got {filename:?}"
+            );
             assert_eq!(font_index, 0);
         }
         _ => panic!("Expected path handle!"),
@@ -195,7 +219,7 @@ mod test {
         let handle = SystemSource::new()
             .select_best_match(&[FamilyName::Serif], &Properties::default())
             .unwrap();
-        check_filename(&handle, "DejaVuSerif.ttf");
+        check_filename_in(&handle, &["DejaVuSerif.ttf", "NotoSerif-Regular.ttf"]);
     }
 
     #[test]
@@ -203,7 +227,7 @@ mod test {
         let handle = SystemSource::new()
             .select_best_match(&[FamilyName::SansSerif], &Properties::default())
             .unwrap();
-        check_filename(&handle, "DejaVuSans.ttf");
+        check_filename_in(&handle, &["DejaVuSans.ttf", "NotoSans-Regular.ttf"]);
     }
 
     #[test]
@@ -211,7 +235,7 @@ mod test {
         let handle = SystemSource::new()
             .select_best_match(&[FamilyName::Monospace], &Properties::default())
             .unwrap();
-        check_filename(&handle, "DejaVuSansMono.ttf");
+        check_filename_in(&handle, &["DejaVuSansMono.ttf", "NotoSansMono-Regular.ttf"]);
     }
 
     #[test]
@@ -226,7 +250,7 @@ mod test {
                 },
             )
             .unwrap();
-        check_filename(&handle, "DejaVuSans-Bold.ttf");
+        check_filename_in(&handle, &["DejaVuSans-Bold.ttf", "NotoSans-Bold.ttf"]);
     }
 
     #[test]

@@ -11,12 +11,12 @@
 //! A loader that uses Apple's Core Text API to load and rasterize fonts.
 
 use byteorder::{BigEndian, ReadBytesExt};
-use core_graphics::base::{kCGImageAlphaPremultipliedLast, CGFloat};
+use core_graphics::base::{CGFloat, kCGImageAlphaPremultipliedLast};
 use core_graphics::color_space::CGColorSpace;
 use core_graphics::context::{CGContext, CGTextDrawingMode};
 use core_graphics::font::{CGFont, CGGlyph};
-use core_graphics::geometry::{CGAffineTransform, CGPoint, CGRect, CGSize};
 use core_graphics::geometry::{CG_AFFINE_TRANSFORM_IDENTITY, CG_ZERO_POINT, CG_ZERO_SIZE};
+use core_graphics::geometry::{CGAffineTransform, CGPoint, CGRect, CGSize};
 use core_graphics::path::CGPathElementType;
 use core_text;
 use core_text::font::CTFont;
@@ -48,8 +48,8 @@ use crate::outline::OutlineSink;
 use crate::properties::{Properties, Stretch, Style, Weight};
 use crate::utils;
 
-const TTC_TAG: [u8; 4] = [b't', b't', b'c', b'f'];
-const OTTO_TAG: [u8; 4] = [b'O', b'T', b'T', b'O'];
+const TTC_TAG: [u8; 4] = *b"ttcf";
+const OTTO_TAG: [u8; 4] = *b"OTTO";
 const OTTO_HEX: u32 = 0x4f54544f; // 'OTTO'
 const TRUE_HEX: u32 = 0x74727565; // 'true'
 const TYP1_HEX: u32 = 0x74797031; // 'typ1'
@@ -81,17 +81,17 @@ impl Font {
     ) -> Result<Font, FontLoadingError> {
         // Sadly, there's no API to load OpenType collections on macOS, I don't believe…
         // If not otf/ttf or otc/ttc, we unpack it as data fork font.
-        if !font_is_single_otf(&*font_data) && !font_is_collection(&*font_data) {
+        if !font_is_single_otf(&font_data) && !font_is_collection(&font_data) {
             let mut new_font_data = (*font_data).clone();
             unpack_data_fork_font(&mut new_font_data)?;
             font_data = Arc::new(new_font_data);
-        } else if font_is_collection(&*font_data) {
+        } else if font_is_collection(&font_data) {
             let mut new_font_data = (*font_data).clone();
             unpack_otc_font(&mut new_font_data, font_index)?;
             font_data = Arc::new(new_font_data);
         }
 
-        let core_text_font = match core_text::font::new_from_buffer(&*font_data) {
+        let core_text_font = match core_text::font::new_from_buffer(&font_data) {
             Ok(ct_font) => ct_font,
             Err(_) => return Err(FontLoadingError::Parse),
         };
@@ -122,10 +122,21 @@ impl Font {
     }
 
     /// Creates a font from a native API handle.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `core_text_font` is a valid Core Text font handle.
     pub unsafe fn from_native_font(core_text_font: &NativeFont) -> Font {
-        Font::from_core_text_font_no_path(core_text_font.clone())
+        // SAFETY: The caller guarantees that the Core Text font handle is valid, and cloning
+        // preserves that handle for the constructed font.
+        unsafe { Font::from_core_text_font_no_path(core_text_font.clone()) }
     }
+
     /// Creates a font from a native API handle, without performing a lookup on the disk.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `core_text_font` is a valid Core Text font handle.
     pub unsafe fn from_core_text_font_no_path(core_text_font: NativeFont) -> Font {
         Font {
             core_text_font,
@@ -156,7 +167,7 @@ impl Font {
         if let Ok(font_count) = read_number_of_fonts_from_otc_header(&font_data) {
             return Ok(FileType::Collection(font_count));
         }
-        match core_text::font::new_from_buffer(&*font_data) {
+        match core_text::font::new_from_buffer(&font_data) {
             Ok(_) => Ok(FileType::Single),
             Err(_) => Err(FontLoadingError::Parse),
         }
@@ -171,7 +182,7 @@ impl Font {
             return Ok(FileType::Collection(font_count));
         }
 
-        match core_text::font::new_from_buffer(&*font_data) {
+        match core_text::font::new_from_buffer(&font_data) {
             Ok(_) => Ok(FileType::Single),
             Err(_) => Err(FontLoadingError::Parse),
         }
@@ -264,11 +275,7 @@ impl Font {
                 .get_glyphs_for_characters(src.as_ptr(), dest.as_mut_ptr(), 2);
 
             let id = dest[0] as u32;
-            if id != 0 {
-                Some(id)
-            } else {
-                None
-            }
+            if id != 0 { Some(id) } else { None }
         }
     }
 
@@ -465,7 +472,7 @@ impl Font {
         glyph_id: u32,
         point_size: f32,
         transform: Transform2F,
-        hinting_options: HintingOptions,
+        _hinting_options: HintingOptions,
         rasterization_options: RasterizationOptions,
     ) -> Result<(), GlyphLoadingError> {
         if canvas.size.x() == 0 || canvas.size.y() == 0 {
@@ -486,7 +493,7 @@ impl Font {
                         glyph_id,
                         point_size,
                         transform,
-                        hinting_options,
+                        _hinting_options,
                         rasterization_options,
                     )?;
                     canvas.blit_from_canvas(&temp_canvas);
@@ -617,7 +624,9 @@ impl Loader for Font {
 
     #[inline]
     unsafe fn from_native_font(native_font: &Self::NativeFont) -> Self {
-        Font::from_native_font(native_font)
+        // SAFETY: The trait caller upholds `Loader::from_native_font`'s contract, which matches
+        // `Font::from_native_font`.
+        unsafe { Font::from_native_font(native_font) }
     }
 
     #[inline]
@@ -770,7 +779,7 @@ impl Deref for FontData {
     fn deref(&self) -> &[u8] {
         match *self {
             FontData::Unavailable => panic!("Font data unavailable!"),
-            FontData::Memory(ref data) => &***data,
+            FontData::Memory(ref data) => data,
         }
     }
 }
@@ -823,11 +832,13 @@ fn unpack_otc_font(data: &mut [u8], font_index: u32) -> Result<(), FontLoadingEr
     let offset_table_pos_pos = 12 + 4 * font_index as usize;
 
     let offset_table_pos =
-        get_slice_from_start(&data, offset_table_pos_pos)?.read_u32::<BigEndian>()? as usize;
-    debug_assert!(utils::SFNT_VERSIONS
-        .iter()
-        .any(|version| { data[offset_table_pos..(offset_table_pos + 4)] == *version }));
-    let num_tables = get_slice_from_start(&data, offset_table_pos + 4)?.read_u16::<BigEndian>()?;
+        get_slice_from_start(data, offset_table_pos_pos)?.read_u32::<BigEndian>()? as usize;
+    debug_assert!(
+        utils::SFNT_VERSIONS
+            .iter()
+            .any(|version| { data[offset_table_pos..(offset_table_pos + 4)] == *version })
+    );
+    let num_tables = get_slice_from_start(data, offset_table_pos + 4)?.read_u16::<BigEndian>()?;
 
     // Must copy forward in order to avoid problems with overlapping memory.
     let offset_table_and_table_record_size = 12 + (num_tables as usize) * 16;
@@ -862,31 +873,30 @@ fn font_is_single_otf(header: &[u8]) -> bool {
 /// https://developer.apple.com/library/archive/documentation/mac/pdf/MoreMacintoshToolbox.pdf#page=151
 fn unpack_data_fork_font(data: &mut [u8]) -> Result<(), FontLoadingError> {
     let data_offset = (&data[..]).read_u32::<BigEndian>()? as usize;
-    let map_offset = get_slice_from_start(&data, 4)?.read_u32::<BigEndian>()? as usize;
+    let map_offset = get_slice_from_start(data, 4)?.read_u32::<BigEndian>()? as usize;
     let num_types =
-        get_slice_from_start(&data, map_offset + 28)?.read_u16::<BigEndian>()? as usize + 1;
+        get_slice_from_start(data, map_offset + 28)?.read_u16::<BigEndian>()? as usize + 1;
 
     let mut font_data_offset = 0;
     let mut font_data_len = 0;
 
-    let type_list_offset = get_slice_from_start(&data, map_offset + 24)?.read_u16::<BigEndian>()?
-        as usize
-        + map_offset;
+    let type_list_offset =
+        get_slice_from_start(data, map_offset + 24)?.read_u16::<BigEndian>()? as usize + map_offset;
     for i in 0..num_types {
         let res_type =
-            get_slice_from_start(&data, map_offset + 30 + i * 8)?.read_u32::<BigEndian>()?;
+            get_slice_from_start(data, map_offset + 30 + i * 8)?.read_u32::<BigEndian>()?;
 
         if res_type == SFNT_HEX {
-            let ref_list_offset = get_slice_from_start(&data, map_offset + 30 + i * 8 + 6)?
+            let ref_list_offset = get_slice_from_start(data, map_offset + 30 + i * 8 + 6)?
                 .read_u16::<BigEndian>()? as usize;
             let res_data_offset =
-                get_slice_from_start(&data, type_list_offset + ref_list_offset + 5)?
+                get_slice_from_start(data, type_list_offset + ref_list_offset + 5)?
                     .read_u24::<BigEndian>()? as usize;
-            font_data_len = get_slice_from_start(&data, data_offset + res_data_offset)?
+            font_data_len = get_slice_from_start(data, data_offset + res_data_offset)?
                 .read_u32::<BigEndian>()? as usize;
             font_data_offset = data_offset + res_data_offset + 4;
             let sfnt_version =
-                get_slice_from_start(&data, font_data_offset)?.read_u32::<BigEndian>()?;
+                get_slice_from_start(data, font_data_offset)?.read_u32::<BigEndian>()?;
 
             // TrueType outline, 'OTTO', 'true', 'typ1'
             if sfnt_version == 0x00010000
@@ -910,6 +920,28 @@ fn unpack_data_fork_font(data: &mut [u8]) -> Result<(), FontLoadingError> {
     Ok(())
 }
 
+pub(crate) fn piecewise_linear_lookup(index: f32, mapping: &[f32]) -> f32 {
+    let lower_value = mapping[f32::floor(index) as usize];
+    let upper_value = mapping[f32::ceil(index) as usize];
+    utils::lerp(lower_value, upper_value, f32::fract(index))
+}
+
+pub(crate) fn piecewise_linear_find_index(query_value: f32, mapping: &[f32]) -> f32 {
+    let upper_index = match mapping
+        .binary_search_by(|value| value.partial_cmp(&query_value).unwrap_or(Ordering::Less))
+    {
+        Ok(index) => return index as f32,
+        Err(upper_index) => upper_index,
+    };
+    if upper_index == 0 || upper_index >= mapping.len() {
+        return upper_index as f32;
+    }
+    let lower_index = upper_index - 1;
+    let (upper_value, lower_value) = (mapping[upper_index], mapping[lower_index]);
+    let t = (query_value - lower_value) / (upper_value - lower_value);
+    lower_index as f32 + t
+}
+
 #[cfg(test)]
 mod test {
     use super::Font;
@@ -918,7 +950,7 @@ mod test {
     #[cfg(feature = "source")]
     use crate::source::SystemSource;
 
-    static TEST_FONT_POSTSCRIPT_NAME: &'static str = "ArialMT";
+    static TEST_FONT_POSTSCRIPT_NAME: &str = "ArialMT";
 
     #[cfg(feature = "source")]
     #[test]
@@ -976,26 +1008,4 @@ mod test {
             Stretch(1.7)
         );
     }
-}
-
-pub(crate) fn piecewise_linear_lookup(index: f32, mapping: &[f32]) -> f32 {
-    let lower_value = mapping[f32::floor(index) as usize];
-    let upper_value = mapping[f32::ceil(index) as usize];
-    utils::lerp(lower_value, upper_value, f32::fract(index))
-}
-
-pub(crate) fn piecewise_linear_find_index(query_value: f32, mapping: &[f32]) -> f32 {
-    let upper_index = match mapping
-        .binary_search_by(|value| value.partial_cmp(&query_value).unwrap_or(Ordering::Less))
-    {
-        Ok(index) => return index as f32,
-        Err(upper_index) => upper_index,
-    };
-    if upper_index == 0 || upper_index >= mapping.len() {
-        return upper_index as f32;
-    }
-    let lower_index = upper_index - 1;
-    let (upper_value, lower_value) = (mapping[upper_index], mapping[lower_index]);
-    let t = (query_value - lower_value) / (upper_value - lower_value);
-    lower_index as f32 + t
 }

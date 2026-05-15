@@ -102,11 +102,18 @@ impl DirectWriteSource {
 
     fn create_handle_from_dwrite_font(&self, dwrite_font: DWriteFont) -> Handle {
         let dwrite_font_face = dwrite_font.create_font_face();
-        let dwrite_font_files = dwrite_font_face.get_files();
+        let dwrite_font_files = dwrite_font_face.files().unwrap();
         Handle::Path {
-            path: dwrite_font_files[0].get_font_file_path().unwrap(),
+            path: dwrite_font_files[0].font_file_path().unwrap(),
             font_index: dwrite_font_face.get_index(),
         }
+    }
+}
+
+impl Default for DirectWriteSource {
+    #[inline]
+    fn default() -> DirectWriteSource {
+        DirectWriteSource::new()
     }
 }
 

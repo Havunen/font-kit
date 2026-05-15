@@ -8,8 +8,8 @@ readme = "README.md"
 repository = "https://github.com/servo/font-kit"
 homepage = "https://github.com/servo/font-kit"
 exclude = ["resources/**"]
-edition = "2018"
-rust-version = "1.77"
+edition = "2024"
+rust-version = "1.93"
 
 [features]
 default = ["source"]
@@ -36,7 +36,7 @@ optional = true
 
 [dev-dependencies]
 clap = "4"
-colored = "2"
+colored = "3"
 pbr = "1.1"
 prettytable-rs = "0.10"
 

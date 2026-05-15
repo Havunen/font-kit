@@ -94,7 +94,7 @@ impl CoreTextSource {
         let collection = font_collection::new_from_descriptors(&descriptors);
         match collection.get_descriptors() {
             None => Err(SelectionError::NotFound),
-            Some(descriptors) => create_handle_from_descriptor(&*descriptors.get(0).unwrap()),
+            Some(descriptors) => create_handle_from_descriptor(&descriptors.get(0).unwrap()),
         }
     }
 
@@ -107,6 +107,13 @@ impl CoreTextSource {
         properties: &Properties,
     ) -> Result<Handle, SelectionError> {
         <Self as Source>::select_best_match(self, family_names, properties)
+    }
+}
+
+impl Default for CoreTextSource {
+    #[inline]
+    fn default() -> CoreTextSource {
+        CoreTextSource::new()
     }
 }
 
@@ -191,12 +198,11 @@ fn create_handle_from_descriptor(descriptor: &CTFontDescriptor) -> Result<Handle
         Ok(FileType::Collection(font_count)) => {
             let postscript_name = descriptor.font_name();
             for font_index in 0..font_count {
-                if let Ok(font) = Font::from_bytes(Arc::clone(&font_data), font_index) {
-                    if let Some(font_postscript_name) = font.postscript_name() {
-                        if postscript_name == font_postscript_name {
-                            return Ok(Handle::from_memory(font_data, font_index));
-                        }
-                    }
+                if let Ok(font) = Font::from_bytes(Arc::clone(&font_data), font_index)
+                    && let Some(font_postscript_name) = font.postscript_name()
+                    && postscript_name == font_postscript_name
+                {
+                    return Ok(Handle::from_memory(font_data, font_index));
                 }
             }
 
