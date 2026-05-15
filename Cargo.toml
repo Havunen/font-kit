@@ -14,6 +14,7 @@ rust-version = "1.93"
 [features]
 default = ["source"]
 loader-freetype = ["freetype-sys"]
+freetype-bundled = ["freetype-sys?/bundled"]
 loader-freetype-default = ["loader-freetype"]
 source-fontconfig = ["yeslogic-fontconfig-sys"]
 source-fontconfig-dlopen = ["yeslogic-fontconfig-sys/dlopen"]

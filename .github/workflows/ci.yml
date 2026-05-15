@@ -47,12 +47,14 @@ jobs:
           - name: Ubuntu 22.04 x86_64
             runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+            cargo_features: --features freetype-bundled
           - name: Ubuntu 24.04 x86_64
             runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
           - name: Ubuntu 22.04 aarch64
             runner: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
+            cargo_features: --features freetype-bundled
           - name: Ubuntu 24.04 aarch64
             runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
@@ -114,18 +116,18 @@ jobs:
             pkg-config
 
       - name: Build
-        run: cargo build --all-targets --target ${{ matrix.target }}
+        run: cargo build --all-targets --target ${{ matrix.target }} ${{ matrix.cargo_features || '' }}
 
       - name: Test
         run: |
-          cargo test --lib --tests --target ${{ matrix.target }}
-          cargo test --doc --target ${{ matrix.target }}
+          cargo test --lib --tests --target ${{ matrix.target }} ${{ matrix.cargo_features || '' }}
+          cargo test --doc --target ${{ matrix.target }} ${{ matrix.cargo_features || '' }}
 
       - name: Check
-        run: cargo check --all-targets --target ${{ matrix.target }}
+        run: cargo check --all-targets --target ${{ matrix.target }} ${{ matrix.cargo_features || '' }}
 
       - name: Clippy
-        run: cargo clippy --all-targets --target ${{ matrix.target }} -- -D warnings
+        run: cargo clippy --all-targets --target ${{ matrix.target }} ${{ matrix.cargo_features || '' }} -- -D warnings
 
   ubuntu-container-build:
     name: Ubuntu ${{ matrix.ubuntu_version }} container x86_64
