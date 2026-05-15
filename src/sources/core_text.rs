@@ -19,8 +19,11 @@ use core_text::font_collection::{self, CTFontCollection};
 use core_text::font_descriptor::{self, CTFontDescriptor};
 use core_text::font_manager;
 use std::any::Any;
+use std::collections::HashMap;
 use std::f32;
 use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::error::SelectionError;
@@ -162,16 +165,31 @@ fn css_stretchiness_to_core_text_width(css_stretchiness: Stretch) -> f32 {
 fn create_handles_from_core_text_collection(
     collection: CTFontCollection,
 ) -> Result<Vec<Handle>, SelectionError> {
-    let mut fonts = vec![];
-    if let Some(descriptors) = collection.get_descriptors() {
-        for index in 0..descriptors.len() {
-            let descriptor = descriptors.get(index).unwrap();
-            let native = new_from_descriptor(&descriptor, 16.);
-            let font = unsafe { Font::from_core_text_font_no_path(native.clone()) };
+    let Some(descriptors) = collection.get_descriptors() else {
+        return Err(SelectionError::NotFound);
+    };
 
-            fonts.push(Handle::from_native(&font));
-        }
+    create_handles_from_core_text_descriptors(&descriptors)
+}
+
+fn create_handles_from_core_text_descriptors(
+    descriptors: &CFArray<CTFontDescriptor>,
+) -> Result<Vec<Handle>, SelectionError> {
+    let mut fonts = vec![];
+    let mut font_file_info_cache = HashMap::new();
+
+    for index in 0..descriptors.len() {
+        let descriptor = descriptors.get(index).unwrap();
+        fonts.push(
+            create_handle_from_descriptor_with_cache(&descriptor, &mut font_file_info_cache)
+                .unwrap_or_else(|_| {
+                    let native = new_from_descriptor(&descriptor, 16.);
+                    let font = unsafe { Font::from_core_text_font_no_path(native.clone()) };
+                    Handle::from_native(&font)
+                }),
+        );
     }
+
     if fonts.is_empty() {
         Err(SelectionError::NotFound)
     } else {
@@ -180,44 +198,179 @@ fn create_handles_from_core_text_collection(
 }
 
 fn create_handle_from_descriptor(descriptor: &CTFontDescriptor) -> Result<Handle, SelectionError> {
-    let font_path = descriptor.font_path().unwrap();
+    create_handle_from_descriptor_with_cache(descriptor, &mut HashMap::new())
+}
 
-    let mut file = if let Ok(file) = File::open(&font_path) {
-        file
-    } else {
+fn create_handle_from_descriptor_with_cache(
+    descriptor: &CTFontDescriptor,
+    font_file_info_cache: &mut HashMap<PathBuf, FontFileInfo>,
+) -> Result<Handle, SelectionError> {
+    let Some(font_path) = descriptor.font_path() else {
         return Err(SelectionError::CannotAccessSource { reason: None });
     };
-
-    let font_data = if let Ok(font_data) = utils::slurp_file(&mut file) {
-        Arc::new(font_data)
+    let font_file_info = if let Some(font_file_info) = font_file_info_cache.get(&font_path) {
+        font_file_info
     } else {
-        return Err(SelectionError::CannotAccessSource { reason: None });
+        let font_file_info = FontFileInfo::read_from_path(&font_path)?;
+        font_file_info_cache.insert(font_path.clone(), font_file_info);
+        font_file_info_cache
+            .get(&font_path)
+            .expect("font file info should be cached after insertion")
     };
 
-    match Font::analyze_bytes(Arc::clone(&font_data)) {
-        Ok(FileType::Collection(font_count)) => {
-            let postscript_name = descriptor.font_name();
-            for font_index in 0..font_count {
-                if let Ok(font) = Font::from_bytes(Arc::clone(&font_data), font_index)
-                    && let Some(font_postscript_name) = font.postscript_name()
-                    && postscript_name == font_postscript_name
-                {
-                    return Ok(Handle::from_memory(font_data, font_index));
-                }
-            }
-
-            Err(SelectionError::NotFound)
+    match font_file_info {
+        FontFileInfo::Single => Ok(Handle::from_path(font_path, 0)),
+        FontFileInfo::Collection(font_indices_by_postscript_name) => {
+            font_indices_by_postscript_name
+                .get(&descriptor.font_name())
+                .copied()
+                .map(|font_index| Handle::from_path(font_path, font_index))
+                .ok_or(SelectionError::NotFound)
         }
-        Ok(FileType::Single) => Ok(Handle::from_memory(font_data, 0)),
-        Err(e) => Err(SelectionError::CannotAccessSource {
-            reason: Some(format!("{:?} error on path {:?}", e, font_path).into()),
-        }),
+    }
+}
+
+enum FontFileInfo {
+    Single,
+    Collection(HashMap<String, u32>),
+}
+
+impl FontFileInfo {
+    fn read_from_path(font_path: &Path) -> Result<Self, SelectionError> {
+        let mut file = if let Ok(file) = File::open(font_path) {
+            file
+        } else {
+            return Err(SelectionError::CannotAccessSource { reason: None });
+        };
+
+        let mut tag = [0; 4];
+        if file.read_exact(&mut tag).is_err() {
+            return Err(SelectionError::CannotAccessSource { reason: None });
+        }
+        if tag != *b"ttcf" {
+            return Ok(FontFileInfo::Single);
+        }
+        if file.seek(SeekFrom::Start(0)).is_err() {
+            return Err(SelectionError::CannotAccessSource { reason: None });
+        }
+
+        let font_data = if let Ok(font_data) = utils::slurp_file(&mut file) {
+            Arc::new(font_data)
+        } else {
+            return Err(SelectionError::CannotAccessSource { reason: None });
+        };
+
+        match Font::analyze_bytes(Arc::clone(&font_data)) {
+            Ok(FileType::Collection(font_count)) => {
+                let mut font_indices_by_postscript_name = HashMap::new();
+                for font_index in 0..font_count {
+                    if let Ok(font) = Font::from_bytes(Arc::clone(&font_data), font_index)
+                        && let Some(font_postscript_name) = font.postscript_name()
+                    {
+                        font_indices_by_postscript_name
+                            .entry(font_postscript_name)
+                            .or_insert(font_index);
+                    }
+                }
+
+                Ok(FontFileInfo::Collection(font_indices_by_postscript_name))
+            }
+            Ok(FileType::Single) => Ok(FontFileInfo::Single),
+            Err(e) => Err(SelectionError::CannotAccessSource {
+                reason: Some(format!("{:?} error on path {:?}", e, font_path).into()),
+            }),
+        }
     }
 }
 
 #[cfg(test)]
 mod test {
     use crate::properties::{Stretch, Weight};
+
+    #[cfg(target_os = "macos")]
+    static TEST_FONT_FILE_PATH: &str = "resources/tests/eb-garamond/EBGaramond12-Regular.otf";
+    #[cfg(target_os = "macos")]
+    static TEST_FONT_COLLECTION_FILE_PATH: &str = "resources/tests/eb-garamond/EBGaramond12.otc";
+    #[cfg(target_os = "macos")]
+    static TEST_FONT_COLLECTION_POSTSCRIPT_NAMES: [&str; 2] =
+        ["EBGaramond12-Italic", "EBGaramond12-Regular"];
+
+    #[cfg(target_os = "macos")]
+    fn test_descriptors_from_file(
+        path: &str,
+    ) -> core_foundation::array::CFArray<core_text::font_descriptor::CTFontDescriptor> {
+        use core_foundation::base::TCFType;
+        use core_foundation::url::CFURL;
+
+        let url = CFURL::from_path(path, false).expect("test font should have a valid file URL");
+        let descriptors_ref = unsafe {
+            core_text::font_manager::CTFontManagerCreateFontDescriptorsFromURL(
+                url.as_concrete_TypeRef(),
+            )
+        };
+        assert!(
+            !descriptors_ref.is_null(),
+            "Core Text should expose descriptors for the test font"
+        );
+        unsafe { TCFType::wrap_under_create_rule(descriptors_ref) }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn create_handles_from_core_text_collection_keeps_pathless_descriptors() {
+        use core_foundation::array::CFArray;
+        use core_text::font_manager::create_font_descriptor;
+
+        let font_data = std::fs::read(TEST_FONT_FILE_PATH).unwrap();
+        let descriptor = create_font_descriptor(&font_data).unwrap();
+        assert!(
+            descriptor.font_path().is_none(),
+            "descriptor created from memory should not depend on a filesystem path"
+        );
+        let descriptors = CFArray::from_CFTypes(&[descriptor]);
+
+        let handles = super::create_handles_from_core_text_descriptors(&descriptors)
+            .expect("pathless Core Text descriptors should remain selectable");
+        assert_eq!(handles.len(), 1);
+
+        let font = handles[0]
+            .load()
+            .expect("pathless Core Text descriptor handle should load");
+        assert_eq!(
+            font.postscript_name().as_deref(),
+            Some("EBGaramond12-Regular")
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn create_handles_from_core_text_collection_does_not_eagerly_copy_file_fonts() {
+        let descriptors = test_descriptors_from_file(TEST_FONT_COLLECTION_FILE_PATH);
+        let handles = super::create_handles_from_core_text_descriptors(&descriptors)
+            .expect("test Core Text descriptors should produce handles");
+
+        assert_eq!(handles.len(), 2);
+        assert!(
+            handles
+                .iter()
+                .all(|handle| matches!(handle, crate::handle::Handle::Path { .. })),
+            "Core Text source enumeration should use reloadable path handles for file-backed fonts"
+        );
+
+        let mut postscript_names = handles
+            .iter()
+            .map(|handle| {
+                handle
+                    .load()
+                    .unwrap()
+                    .postscript_name()
+                    .expect("test font should have a PostScript name")
+            })
+            .collect::<Vec<_>>();
+        postscript_names.sort();
+
+        assert_eq!(postscript_names, TEST_FONT_COLLECTION_POSTSCRIPT_NAMES);
+    }
 
     #[test]
     fn test_css_to_core_text_font_weight() {

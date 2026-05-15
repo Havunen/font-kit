@@ -398,9 +398,10 @@ impl Font {
                 let bounding_box = match self
                     .dwrite_font_face
                     .font_table(OPENTYPE_TABLE_TAG_HEAD.swap_bytes())
-                    .unwrap()
+                    .ok()
+                    .flatten()
                 {
-                    Some(head) => {
+                    Some(head) if head.len() >= 44 => {
                         let mut reader = &head[36..];
                         let x_min = reader.read_i16::<BigEndian>().unwrap();
                         let y_min = reader.read_i16::<BigEndian>().unwrap();
@@ -413,6 +414,7 @@ impl Font {
                         .to_f32()
                     }
                     None => RectF::default(),
+                    Some(_) => RectF::default(),
                 };
                 Metrics {
                     units_per_em: metrics.designUnitsPerEm as u32,
@@ -443,11 +445,14 @@ impl Font {
     /// collection.
     pub fn copy_font_data(&self) -> Option<Arc<Vec<u8>>> {
         let mut font_data = self.cached_data.lock().unwrap();
-        if font_data.is_none() {
-            let files = self.dwrite_font_face.files().unwrap();
+        if font_data.is_none()
+            && let Ok(files) = self.dwrite_font_face.files()
+        {
             // FIXME(pcwalton): Is this right? When can a font have multiple files?
-            if let Some(file) = files.first() {
-                *font_data = Some(Arc::new(file.font_file_bytes().unwrap()))
+            if let Some(file) = files.first()
+                && let Ok(bytes) = file.font_file_bytes()
+            {
+                *font_data = Some(Arc::new(bytes))
             }
         }
         (*font_data).clone()
@@ -888,6 +893,42 @@ impl Loader for Font {
     #[inline]
     fn load_font_table(&self, table_tag: u32) -> Option<Box<[u8]>> {
         self.load_font_table(table_tag)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn directwrite_loader_does_not_unwrap_recoverable_table_or_file_api_failures() {
+        let source = include_str!("directwrite.rs");
+        let metrics_table_unwrap = concat!(
+            ".font_table(OPENTYPE_TABLE_TAG_HEAD.swap_bytes())",
+            "\n",
+            "                    .unwrap()"
+        );
+        let files_unwrap = concat!("self.dwrite_font_face.files()", ".unwrap()");
+        let bytes_unwrap = concat!("file.font_file_bytes()", ".unwrap()");
+        let collapsible_copy_font_data_branch = concat!(
+            "if font_data.is_none() {\n",
+            "            if let Ok(files) = self.dwrite_font_face.files() {"
+        );
+
+        assert!(
+            !source.contains(metrics_table_unwrap),
+            "DirectWrite FontFace::font_table returns Result and should not be unwrapped"
+        );
+        assert!(
+            !source.contains(files_unwrap),
+            "DirectWrite FontFace::files returns Result and should not be unwrapped"
+        );
+        assert!(
+            !source.contains(bytes_unwrap),
+            "DirectWrite FontFile::font_file_bytes returns Result and should not be unwrapped"
+        );
+        assert!(
+            !source.contains(collapsible_copy_font_data_branch),
+            "DirectWrite copy_font_data should remain compatible with clippy -D warnings"
+        );
     }
 }
 

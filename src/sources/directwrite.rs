@@ -13,6 +13,7 @@
 use dwrote::Font as DWriteFont;
 use dwrote::FontCollection as DWriteFontCollection;
 use std::any::Any;
+use std::sync::Arc;
 
 use crate::error::SelectionError;
 use crate::family_handle::FamilyHandle;
@@ -44,7 +45,9 @@ impl DirectWriteSource {
                 let Ok(dwrite_font) = dwrite_family.font(font_index) else {
                     continue;
                 };
-                handles.push(self.create_handle_from_dwrite_font(dwrite_font))
+                if let Ok(handle) = self.create_handle_from_dwrite_font(dwrite_font) {
+                    handles.push(handle)
+                }
             }
         }
 
@@ -73,7 +76,12 @@ impl DirectWriteSource {
             let Ok(dwrite_font) = dwrite_family.font(font_index) else {
                 continue;
             };
-            family.push(self.create_handle_from_dwrite_font(dwrite_font));
+            if let Ok(handle) = self.create_handle_from_dwrite_font(dwrite_font) {
+                family.push(handle);
+            }
+        }
+        if family.fonts().is_empty() {
+            return Err(SelectionError::CannotAccessSource { reason: None });
         }
         Ok(family)
     }
@@ -100,13 +108,30 @@ impl DirectWriteSource {
         <Self as Source>::select_best_match(self, family_names, properties)
     }
 
-    fn create_handle_from_dwrite_font(&self, dwrite_font: DWriteFont) -> Handle {
+    fn create_handle_from_dwrite_font(
+        &self,
+        dwrite_font: DWriteFont,
+    ) -> Result<Handle, SelectionError> {
         let dwrite_font_face = dwrite_font.create_font_face();
-        let dwrite_font_files = dwrite_font_face.files().unwrap();
-        Handle::Path {
-            path: dwrite_font_files[0].font_file_path().unwrap(),
-            font_index: dwrite_font_face.get_index(),
+        let font_index = dwrite_font_face.get_index();
+        let dwrite_font_files = dwrite_font_face
+            .files()
+            .map_err(|_| SelectionError::CannotAccessSource { reason: None })?;
+        let Some(dwrite_font_file) = dwrite_font_files.first() else {
+            return Err(SelectionError::CannotAccessSource { reason: None });
+        };
+
+        if let Ok(path) = dwrite_font_file.font_file_path() {
+            return Ok(Handle::Path { path, font_index });
         }
+
+        dwrite_font_file
+            .font_file_bytes()
+            .map(|bytes| Handle::Memory {
+                bytes: Arc::new(bytes),
+                font_index,
+            })
+            .map_err(|_| SelectionError::CannotAccessSource { reason: None })
     }
 }
 
@@ -141,5 +166,61 @@ impl Source for DirectWriteSource {
     #[inline]
     fn as_mut_any(&mut self) -> &mut dyn Any {
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dwrote::CustomFontCollectionLoaderImpl;
+    use dwrote::FontFile as DWriteFontFile;
+    use std::fs::File;
+    use std::io::Read;
+    use std::panic::{self, AssertUnwindSafe};
+    use std::sync::Arc;
+
+    fn dwrite_font_from_in_memory_test_font() -> DWriteFont {
+        let mut file = File::open("resources/tests/eb-garamond/EBGaramond12-Regular.ttf").unwrap();
+        let mut bytes = vec![];
+        file.read_to_end(&mut bytes).unwrap();
+
+        let font_file = DWriteFontFile::new_from_buffer(Arc::new(bytes)).unwrap();
+        let collection_loader =
+            CustomFontCollectionLoaderImpl::new(std::slice::from_ref(&font_file));
+        let collection = DWriteFontCollection::from_loader(collection_loader);
+        let family = collection.families_iter().next().unwrap();
+        family.font(0).unwrap()
+    }
+
+    #[test]
+    fn directwrite_source_handles_non_local_font_files_without_panicking() {
+        let dwrite_font = dwrite_font_from_in_memory_test_font();
+        let source = DirectWriteSource::new();
+        let result = panic::catch_unwind(AssertUnwindSafe(|| {
+            source.create_handle_from_dwrite_font(dwrite_font)
+        }));
+
+        let handle = result
+            .expect("DirectWrite source should not panic on non-local font files")
+            .expect("DirectWrite source should fall back to memory handles for non-local fonts");
+        handle
+            .load()
+            .expect("handle produced for a non-local DirectWrite font should remain loadable");
+    }
+
+    #[test]
+    fn directwrite_source_does_not_unwrap_recoverable_file_api_failures() {
+        let source = include_str!("directwrite.rs");
+        let files_unwrap = concat!("dwrite_font_face.files()", ".unwrap()");
+        let path_unwrap = concat!("font_file_path()", ".unwrap()");
+
+        assert!(
+            !source.contains(files_unwrap),
+            "DirectWrite FontFace::files returns Result and should not be unwrapped"
+        );
+        assert!(
+            !source.contains(path_unwrap),
+            "DirectWrite FontFile::font_file_path returns Result and should not be unwrapped"
+        );
     }
 }
