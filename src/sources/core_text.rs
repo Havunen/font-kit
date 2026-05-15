@@ -165,22 +165,31 @@ fn css_stretchiness_to_core_text_width(css_stretchiness: Stretch) -> f32 {
 fn create_handles_from_core_text_collection(
     collection: CTFontCollection,
 ) -> Result<Vec<Handle>, SelectionError> {
-    let mut fonts = vec![];
-    if let Some(descriptors) = collection.get_descriptors() {
-        let mut font_file_info_cache = HashMap::new();
+    let Some(descriptors) = collection.get_descriptors() else {
+        return Err(SelectionError::NotFound);
+    };
 
-        for index in 0..descriptors.len() {
-            let descriptor = descriptors.get(index).unwrap();
-            fonts.push(
-                create_handle_from_descriptor_with_cache(&descriptor, &mut font_file_info_cache)
-                    .unwrap_or_else(|_| {
-                        let native = new_from_descriptor(&descriptor, 16.);
-                        let font = unsafe { Font::from_core_text_font_no_path(native.clone()) };
-                        Handle::from_native(&font)
-                    }),
-            );
-        }
+    create_handles_from_core_text_descriptors(&descriptors)
+}
+
+fn create_handles_from_core_text_descriptors(
+    descriptors: &CFArray<CTFontDescriptor>,
+) -> Result<Vec<Handle>, SelectionError> {
+    let mut fonts = vec![];
+    let mut font_file_info_cache = HashMap::new();
+
+    for index in 0..descriptors.len() {
+        let descriptor = descriptors.get(index).unwrap();
+        fonts.push(
+            create_handle_from_descriptor_with_cache(&descriptor, &mut font_file_info_cache)
+                .unwrap_or_else(|_| {
+                    let native = new_from_descriptor(&descriptor, 16.);
+                    let font = unsafe { Font::from_core_text_font_no_path(native.clone()) };
+                    Handle::from_native(&font)
+                }),
+        );
     }
+
     if fonts.is_empty() {
         Err(SelectionError::NotFound)
     } else {
@@ -287,11 +296,11 @@ mod test {
         ["EBGaramond12-Italic", "EBGaramond12-Regular"];
 
     #[cfg(target_os = "macos")]
-    fn test_collection_from_file(path: &str) -> core_text::font_collection::CTFontCollection {
-        use core_foundation::array::CFArray;
+    fn test_descriptors_from_file(
+        path: &str,
+    ) -> core_foundation::array::CFArray<core_text::font_descriptor::CTFontDescriptor> {
         use core_foundation::base::TCFType;
         use core_foundation::url::CFURL;
-        use core_text::font_descriptor::CTFontDescriptor;
 
         let url = CFURL::from_path(path, false).expect("test font should have a valid file URL");
         let descriptors_ref = unsafe {
@@ -303,10 +312,7 @@ mod test {
             !descriptors_ref.is_null(),
             "Core Text should expose descriptors for the test font"
         );
-        let descriptors: CFArray<CTFontDescriptor> =
-            unsafe { TCFType::wrap_under_create_rule(descriptors_ref) };
-
-        core_text::font_collection::new_from_descriptors(&descriptors)
+        unsafe { TCFType::wrap_under_create_rule(descriptors_ref) }
     }
 
     #[cfg(target_os = "macos")]
@@ -322,9 +328,8 @@ mod test {
             "descriptor created from memory should not depend on a filesystem path"
         );
         let descriptors = CFArray::from_CFTypes(&[descriptor]);
-        let collection = core_text::font_collection::new_from_descriptors(&descriptors);
 
-        let handles = super::create_handles_from_core_text_collection(collection)
+        let handles = super::create_handles_from_core_text_descriptors(&descriptors)
             .expect("pathless Core Text descriptors should remain selectable");
         assert_eq!(handles.len(), 1);
 
@@ -340,9 +345,9 @@ mod test {
     #[cfg(target_os = "macos")]
     #[test]
     fn create_handles_from_core_text_collection_does_not_eagerly_copy_file_fonts() {
-        let collection = test_collection_from_file(TEST_FONT_COLLECTION_FILE_PATH);
-        let handles = super::create_handles_from_core_text_collection(collection)
-            .expect("test Core Text collection should produce handles");
+        let descriptors = test_descriptors_from_file(TEST_FONT_COLLECTION_FILE_PATH);
+        let handles = super::create_handles_from_core_text_descriptors(&descriptors)
+            .expect("test Core Text descriptors should produce handles");
 
         assert_eq!(handles.len(), 2);
         assert!(
