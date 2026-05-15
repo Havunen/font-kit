@@ -13,6 +13,7 @@
 use dwrote::Font as DWriteFont;
 use dwrote::FontCollection as DWriteFontCollection;
 use std::any::Any;
+use std::sync::Arc;
 
 use crate::error::SelectionError;
 use crate::family_handle::FamilyHandle;
@@ -44,7 +45,9 @@ impl DirectWriteSource {
                 let Ok(dwrite_font) = dwrite_family.font(font_index) else {
                     continue;
                 };
-                handles.push(self.create_handle_from_dwrite_font(dwrite_font))
+                if let Ok(handle) = self.create_handle_from_dwrite_font(dwrite_font) {
+                    handles.push(handle)
+                }
             }
         }
 
@@ -73,7 +76,12 @@ impl DirectWriteSource {
             let Ok(dwrite_font) = dwrite_family.font(font_index) else {
                 continue;
             };
-            family.push(self.create_handle_from_dwrite_font(dwrite_font));
+            if let Ok(handle) = self.create_handle_from_dwrite_font(dwrite_font) {
+                family.push(handle);
+            }
+        }
+        if family.fonts().is_empty() {
+            return Err(SelectionError::CannotAccessSource { reason: None });
         }
         Ok(family)
     }
@@ -100,13 +108,30 @@ impl DirectWriteSource {
         <Self as Source>::select_best_match(self, family_names, properties)
     }
 
-    fn create_handle_from_dwrite_font(&self, dwrite_font: DWriteFont) -> Handle {
+    fn create_handle_from_dwrite_font(
+        &self,
+        dwrite_font: DWriteFont,
+    ) -> Result<Handle, SelectionError> {
         let dwrite_font_face = dwrite_font.create_font_face();
-        let dwrite_font_files = dwrite_font_face.files().unwrap();
-        Handle::Path {
-            path: dwrite_font_files[0].font_file_path().unwrap(),
-            font_index: dwrite_font_face.get_index(),
+        let font_index = dwrite_font_face.get_index();
+        let dwrite_font_files = dwrite_font_face
+            .files()
+            .map_err(|_| SelectionError::CannotAccessSource { reason: None })?;
+        let Some(dwrite_font_file) = dwrite_font_files.first() else {
+            return Err(SelectionError::CannotAccessSource { reason: None });
+        };
+
+        if let Ok(path) = dwrite_font_file.font_file_path() {
+            return Ok(Handle::Path { path, font_index });
         }
+
+        dwrite_font_file
+            .font_file_bytes()
+            .map(|bytes| Handle::Memory {
+                bytes: Arc::new(bytes),
+                font_index,
+            })
+            .map_err(|_| SelectionError::CannotAccessSource { reason: None })
     }
 }
 
@@ -175,7 +200,9 @@ mod tests {
             source.create_handle_from_dwrite_font(dwrite_font)
         }));
 
-        let handle = result.expect("DirectWrite source should not panic on non-local font files");
+        let handle = result
+            .expect("DirectWrite source should not panic on non-local font files")
+            .expect("DirectWrite source should fall back to memory handles for non-local fonts");
         handle
             .load()
             .expect("handle produced for a non-local DirectWrite font should remain loadable");

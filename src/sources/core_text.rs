@@ -180,7 +180,9 @@ fn create_handles_from_core_text_collection(
 }
 
 fn create_handle_from_descriptor(descriptor: &CTFontDescriptor) -> Result<Handle, SelectionError> {
-    let font_path = descriptor.font_path().unwrap();
+    let Some(font_path) = descriptor.font_path() else {
+        return Err(SelectionError::CannotAccessSource { reason: None });
+    };
 
     let mut file = if let Ok(file) = File::open(&font_path) {
         file
@@ -218,6 +220,95 @@ fn create_handle_from_descriptor(descriptor: &CTFontDescriptor) -> Result<Handle
 #[cfg(test)]
 mod test {
     use crate::properties::{Stretch, Weight};
+
+    #[cfg(target_os = "macos")]
+    static TEST_FONT_FILE_PATH: &str = "resources/tests/eb-garamond/EBGaramond12-Regular.otf";
+    #[cfg(target_os = "macos")]
+    static TEST_FONT_COLLECTION_FILE_PATH: &str = "resources/tests/eb-garamond/EBGaramond12.otc";
+    #[cfg(target_os = "macos")]
+    static TEST_FONT_COLLECTION_POSTSCRIPT_NAMES: [&str; 2] =
+        ["EBGaramond12-Italic", "EBGaramond12-Regular"];
+
+    #[cfg(target_os = "macos")]
+    fn test_collection_from_file(path: &str) -> core_text::font_collection::CTFontCollection {
+        use core_foundation::array::CFArray;
+        use core_foundation::base::TCFType;
+        use core_foundation::url::CFURL;
+        use core_text::font_descriptor::CTFontDescriptor;
+
+        let url = CFURL::from_path(path, false).expect("test font should have a valid file URL");
+        let descriptors_ref = unsafe {
+            core_text::font_manager::CTFontManagerCreateFontDescriptorsFromURL(
+                url.as_concrete_TypeRef(),
+            )
+        };
+        assert!(
+            !descriptors_ref.is_null(),
+            "Core Text should expose descriptors for the test font"
+        );
+        let descriptors: CFArray<CTFontDescriptor> =
+            unsafe { TCFType::wrap_under_create_rule(descriptors_ref) };
+
+        core_text::font_collection::new_from_descriptors(&descriptors)
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn create_handles_from_core_text_collection_keeps_pathless_descriptors() {
+        use core_foundation::array::CFArray;
+        use core_text::font_manager::create_font_descriptor;
+
+        let font_data = std::fs::read(TEST_FONT_FILE_PATH).unwrap();
+        let descriptor = create_font_descriptor(&font_data).unwrap();
+        assert!(
+            descriptor.font_path().is_none(),
+            "descriptor created from memory should not depend on a filesystem path"
+        );
+        let descriptors = CFArray::from_CFTypes(&[descriptor]);
+        let collection = core_text::font_collection::new_from_descriptors(&descriptors);
+
+        let handles = super::create_handles_from_core_text_collection(collection)
+            .expect("pathless Core Text descriptors should remain selectable");
+        assert_eq!(handles.len(), 1);
+
+        let font = handles[0]
+            .load()
+            .expect("pathless Core Text descriptor handle should load");
+        assert_eq!(
+            font.postscript_name().as_deref(),
+            Some("EBGaramond12-Regular")
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn create_handles_from_core_text_collection_does_not_eagerly_copy_file_fonts() {
+        let collection = test_collection_from_file(TEST_FONT_COLLECTION_FILE_PATH);
+        let handles = super::create_handles_from_core_text_collection(collection)
+            .expect("test Core Text collection should produce handles");
+
+        assert_eq!(handles.len(), 2);
+        assert!(
+            handles
+                .iter()
+                .all(|handle| !matches!(handle, crate::handle::Handle::Memory { .. })),
+            "Core Text source enumeration should not eagerly copy raw font bytes into handles"
+        );
+
+        let mut postscript_names = handles
+            .iter()
+            .map(|handle| {
+                handle
+                    .load()
+                    .unwrap()
+                    .postscript_name()
+                    .expect("test font should have a PostScript name")
+            })
+            .collect::<Vec<_>>();
+        postscript_names.sort();
+
+        assert_eq!(postscript_names, TEST_FONT_COLLECTION_POSTSCRIPT_NAMES);
+    }
 
     #[test]
     fn test_css_to_core_text_font_weight() {

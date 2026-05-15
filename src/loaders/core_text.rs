@@ -98,7 +98,10 @@ impl Font {
 
         Ok(Font {
             core_text_font,
-            font_data: FontData::Memory(font_data),
+            font_data: FontData::Memory {
+                data: font_data,
+                font_index: 0,
+            },
         })
     }
 
@@ -129,7 +132,34 @@ impl Font {
     pub unsafe fn from_native_font(core_text_font: &NativeFont) -> Font {
         // SAFETY: The caller guarantees that the Core Text font handle is valid, and cloning
         // preserves that handle for the constructed font.
-        unsafe { Font::from_core_text_font_no_path(core_text_font.clone()) }
+        unsafe { Font::from_core_text_font(core_text_font.clone()) }
+    }
+
+    unsafe fn from_core_text_font(core_text_font: NativeFont) -> Font {
+        let mut font_data = FontData::Unavailable;
+        match core_text_font.url() {
+            None => warn!("No URL found for Core Text font!"),
+            Some(url) => match url.to_path() {
+                Some(path) => match File::open(path) {
+                    Ok(ref mut file) => match utils::slurp_file(file) {
+                        Ok(data) => {
+                            let data = Arc::new(data);
+                            let font_index =
+                                font_index_for_core_text_font(&core_text_font, Arc::clone(&data));
+                            font_data = FontData::Memory { data, font_index };
+                        }
+                        Err(_) => warn!("Couldn't read file data for Core Text font!"),
+                    },
+                    Err(_) => warn!("Could not open file for Core Text font!"),
+                },
+                None => warn!("Could not convert URL from Core Text font to path!"),
+            },
+        }
+
+        Font {
+            core_text_font,
+            font_data,
+        }
     }
 
     /// Creates a font from a native API handle, without performing a lookup on the disk.
@@ -419,7 +449,12 @@ impl Font {
     /// This is useful if you want to open the font with a different loader.
     #[inline]
     pub fn handle(&self) -> Option<Handle> {
-        <Self as Loader>::handle(self)
+        match &self.font_data {
+            FontData::Unavailable => None,
+            FontData::Memory { data, font_index } => {
+                Some(Handle::from_memory(Arc::clone(data), *font_index))
+            }
+        }
     }
 
     /// Attempts to return the raw font data (contents of the font file).
@@ -427,9 +462,9 @@ impl Font {
     /// If this font is a member of a collection, this function returns the data for the entire
     /// collection.
     pub fn copy_font_data(&self) -> Option<Arc<Vec<u8>>> {
-        match self.font_data {
+        match &self.font_data {
             FontData::Unavailable => None,
-            FontData::Memory(ref memory) => Some((*memory).clone()),
+            FontData::Memory { data, .. } => Some(Arc::clone(data)),
         }
     }
 
@@ -718,6 +753,11 @@ impl Loader for Font {
     }
 
     #[inline]
+    fn handle(&self) -> Option<Handle> {
+        Font::handle(self)
+    }
+
+    #[inline]
     fn copy_font_data(&self) -> Option<Arc<Vec<u8>>> {
         self.copy_font_data()
     }
@@ -771,17 +811,34 @@ impl Debug for Font {
 #[derive(Clone)]
 enum FontData {
     Unavailable,
-    Memory(Arc<Vec<u8>>),
+    Memory { data: Arc<Vec<u8>>, font_index: u32 },
 }
 
 impl Deref for FontData {
     type Target = [u8];
     fn deref(&self) -> &[u8] {
-        match *self {
+        match self {
             FontData::Unavailable => panic!("Font data unavailable!"),
-            FontData::Memory(ref data) => data,
+            FontData::Memory { data, .. } => data.as_ref(),
         }
     }
+}
+
+fn font_index_for_core_text_font(core_text_font: &NativeFont, font_data: Arc<Vec<u8>>) -> u32 {
+    let Ok(FileType::Collection(font_count)) = Font::analyze_bytes(Arc::clone(&font_data)) else {
+        return 0;
+    };
+
+    let postscript_name = core_text_font.postscript_name();
+    for font_index in 0..font_count {
+        if let Ok(font) = Font::from_bytes(Arc::clone(&font_data), font_index)
+            && font.postscript_name().as_deref() == Some(postscript_name.as_str())
+        {
+            return font_index;
+        }
+    }
+
+    0
 }
 
 trait CGPointExt {
@@ -944,13 +1001,44 @@ pub(crate) fn piecewise_linear_find_index(query_value: f32, mapping: &[f32]) -> 
 
 #[cfg(test)]
 mod test {
-    use super::Font;
+    use super::{Font, NativeFont};
     use crate::properties::{Stretch, Weight};
 
     #[cfg(feature = "source")]
     use crate::source::SystemSource;
 
+    #[cfg(target_os = "macos")]
+    static TEST_FONT_COLLECTION_FILE_PATH: &str = "resources/tests/eb-garamond/EBGaramond12.otc";
+
     static TEST_FONT_POSTSCRIPT_NAME: &str = "ArialMT";
+
+    #[cfg(target_os = "macos")]
+    fn native_font_from_test_collection(font_index: usize) -> NativeFont {
+        use core_foundation::array::CFArray;
+        use core_foundation::base::TCFType;
+        use core_foundation::url::CFURL;
+        use core_text::font::new_from_descriptor;
+        use core_text::font_descriptor::CTFontDescriptor;
+
+        let url = CFURL::from_path(TEST_FONT_COLLECTION_FILE_PATH, false)
+            .expect("test font collection should have a valid file URL");
+        let descriptors_ref = unsafe {
+            core_text::font_manager::CTFontManagerCreateFontDescriptorsFromURL(
+                url.as_concrete_TypeRef(),
+            )
+        };
+        assert!(
+            !descriptors_ref.is_null(),
+            "Core Text should expose descriptors for the test font collection"
+        );
+        let descriptors: CFArray<CTFontDescriptor> =
+            unsafe { TCFType::wrap_under_create_rule(descriptors_ref) };
+        let descriptor = descriptors
+            .get(font_index as isize)
+            .expect("test font collection should contain the requested face");
+
+        new_from_descriptor(&descriptor, 16.)
+    }
 
     #[cfg(feature = "source")]
     #[test]
@@ -964,6 +1052,26 @@ mod test {
         let core_graphics_font = core_text_font.copy_to_CGFont();
         let font1 = Font::from_core_graphics_font(core_graphics_font);
         assert_eq!(font1.postscript_name().unwrap(), TEST_FONT_POSTSCRIPT_NAME);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_native_font_from_collection_member_round_trips_selected_face() {
+        let native = native_font_from_test_collection(1);
+        let expected_postscript_name = native.postscript_name();
+        assert_eq!(expected_postscript_name, "EBGaramond12-Italic");
+
+        let font = unsafe { Font::from_native_font(&native) };
+        let handle = font
+            .handle()
+            .expect("native Core Text collection member should expose a reloadable handle");
+        let reloaded_font = handle.load().expect("round-tripped handle should load");
+
+        assert_eq!(
+            reloaded_font.postscript_name().as_deref(),
+            Some(expected_postscript_name.as_str()),
+            "Core Text native-font handles should preserve non-zero collection indexes"
+        );
     }
 
     #[test]
