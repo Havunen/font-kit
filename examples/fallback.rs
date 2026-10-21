@@ -17,7 +17,7 @@ use font_kit::loader::Loader;
 use font_kit::source::SystemSource;
 
 #[cfg(any(target_family = "windows", target_os = "macos"))]
-static SANS_SERIF_FONT_REGULAR_POSTSCRIPT_NAME: &'static str = "ArialMT";
+static SANS_SERIF_FONT_REGULAR_POSTSCRIPT_NAME: &str = "ArialMT";
 #[cfg(not(any(target_family = "windows", target_os = "macos")))]
 static SANS_SERIF_FONT_REGULAR_POSTSCRIPT_NAME: &str = "DejaVuSans";
 

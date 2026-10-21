@@ -22,7 +22,7 @@ use pathfinder_geometry::transform2d::Transform2F;
 use std::fmt::Write;
 
 #[cfg(any(target_family = "windows", target_os = "macos"))]
-static SANS_SERIF_FONT_REGULAR_POSTSCRIPT_NAME: &'static str = "ArialMT";
+static SANS_SERIF_FONT_REGULAR_POSTSCRIPT_NAME: &str = "ArialMT";
 #[cfg(not(any(target_family = "windows", target_os = "macos")))]
 static SANS_SERIF_FONT_REGULAR_POSTSCRIPT_NAME: &str = "DejaVuSans";
 
@@ -59,13 +59,13 @@ fn get_args() -> ArgMatches {
         .short('H')
         .long("hinting")
         .value_parser(hinting_value_parser)
-        .value_names(&["TYPE"]);
+        .value_names(["TYPE"]);
     let transform_arg = Arg::new("transform")
         .help("Transform to apply to glyph when rendering")
         .long("transform")
         .num_args(4);
     let rasterization_mode_group =
-        ArgGroup::new("rasterization-mode").args(&["grayscale", "bilevel", "subpixel"]);
+        ArgGroup::new("rasterization-mode").args(["grayscale", "bilevel", "subpixel"]);
     Command::new("render-glyph")
         .version("0.1")
         .author("The Pathfinder Project Developers")
@@ -112,10 +112,10 @@ fn main() {
     };
 
     let mut transform = Transform2F::default();
-    if let Some(values) = matches.get_many::<String>("transform") {
-        if let [Ok(a), Ok(b), Ok(c), Ok(d)] = values.map(|x| x.parse()).collect::<Vec<_>>()[..] {
-            transform = Transform2F::row_major(a, b, c, d, 0.0, 0.0)
-        }
+    if let Some(values) = matches.get_many::<String>("transform")
+        && let [Ok(a), Ok(b), Ok(c), Ok(d)] = values.map(|x| x.parse()).collect::<Vec<_>>()[..]
+    {
+        transform = Transform2F::row_major(a, b, c, d, 0.0, 0.0)
     }
 
     let hinting_options = match matches.get_one::<String>("hinting").map(|s| s.as_str()) {

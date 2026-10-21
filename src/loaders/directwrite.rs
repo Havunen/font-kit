@@ -23,9 +23,9 @@ use dwrote::GlyphOffset as DWriteGlyphOffset;
 use dwrote::GlyphRunAnalysis as DWriteGlyphRunAnalysis;
 use dwrote::InformationalStringId as DWriteInformationalStringId;
 use dwrote::OutlineBuilder as DWriteOutlineBuilder;
-use dwrote::{DWRITE_TEXTURE_ALIASED_1x1, DWRITE_TEXTURE_CLEARTYPE_3x1};
 use dwrote::{DWRITE_GLYPH_RUN, DWRITE_MEASURING_MODE_NATURAL};
 use dwrote::{DWRITE_RENDERING_MODE_ALIASED, DWRITE_RENDERING_MODE_NATURAL};
+use dwrote::{DWRITE_TEXTURE_ALIASED_1x1, DWRITE_TEXTURE_CLEARTYPE_3x1};
 use pathfinder_geometry::line_segment::LineSegment2F;
 use pathfinder_geometry::rect::{RectF, RectI};
 use pathfinder_geometry::transform2d::Transform2F;
@@ -61,6 +61,7 @@ const OPENTYPE_TABLE_TAG_HEAD: u32 = 0x68656164;
 
 /// DirectWrite's representation of a font.
 #[allow(missing_debug_implementations)]
+#[derive(Clone)]
 pub struct NativeFont {
     /// The native DirectWrite font object.
     pub dwrite_font: DWriteFont,
@@ -96,7 +97,8 @@ impl Font {
         mut font_index: u32,
         font_data: Option<Arc<Vec<u8>>>,
     ) -> Result<Font, FontLoadingError> {
-        let collection_loader = CustomFontCollectionLoaderImpl::new(&[font_file.clone()]);
+        let collection_loader =
+            CustomFontCollectionLoaderImpl::new(std::slice::from_ref(&font_file));
         let collection = DWriteFontCollection::from_loader(collection_loader);
         let families = collection.families_iter();
         for family in families {
@@ -125,7 +127,7 @@ impl Font {
     /// of the font to load from it. If the data represents a single font, pass 0 for `font_index`.
     pub fn from_bytes(font_data: Arc<Vec<u8>>, font_index: u32) -> Result<Font, FontLoadingError> {
         let font_file =
-            DWriteFontFile::new_from_data(font_data.clone()).ok_or(FontLoadingError::Parse)?;
+            DWriteFontFile::new_from_buffer(font_data.clone()).ok_or(FontLoadingError::Parse)?;
         Font::from_dwrite_font_file(font_file, font_index, Some(font_data))
     }
 
@@ -161,8 +163,13 @@ impl Font {
     }
 
     /// Creates a font from a native API handle.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `native_font` is a valid DirectWrite font handle.
     #[inline]
-    pub unsafe fn from_native_font(native_font: NativeFont) -> Font {
+    pub unsafe fn from_native_font(native_font: &NativeFont) -> Font {
+        let native_font = native_font.clone();
         Font {
             dwrite_font: native_font.dwrite_font,
             dwrite_font_face: native_font.dwrite_font_face,
@@ -179,7 +186,7 @@ impl Font {
     /// Determines whether a blob of raw font data represents a supported font, and, if so, what
     /// type of font it is.
     pub fn analyze_bytes(font_data: Arc<Vec<u8>>) -> Result<FileType, FontLoadingError> {
-        match DWriteFontFile::analyze_data(font_data) {
+        match DWriteFontFile::analyze_buffer(font_data) {
             0 => Err(FontLoadingError::Parse),
             1 => Ok(FileType::Single),
             font_count => Ok(FileType::Collection(font_count)),
@@ -257,17 +264,14 @@ impl Font {
     pub fn glyph_for_char(&self, character: char) -> Option<u32> {
         let chars = [character as u32];
         self.dwrite_font_face
-            .get_glyph_indices(&chars)
+            .glyph_indices(&chars)
+            .ok()?
             .into_iter()
             .next()
             .and_then(|g| {
                 // 0 means the char is not present in the font per
                 // https://docs.microsoft.com/en-us/windows/win32/api/dwrite/nf-dwrite-idwritefontface-getglyphindices
-                if g != 0 {
-                    Some(g as u32)
-                } else {
-                    None
-                }
+                if g != 0 { Some(g as u32) } else { None }
             })
     }
 
@@ -295,15 +299,17 @@ impl Font {
         S: OutlineSink,
     {
         let outline_sink = OutlineCanonicalizer::new();
-        self.dwrite_font_face.get_glyph_run_outline(
-            self.metrics().units_per_em as f32,
-            &[glyph_id as u16],
-            None,
-            None,
-            false,
-            false,
-            Box::new(outline_sink.clone()),
-        );
+        self.dwrite_font_face
+            .glyph_run_outline(
+                self.metrics().units_per_em as f32,
+                &[glyph_id as u16],
+                None,
+                None,
+                false,
+                false,
+                Box::new(outline_sink.clone()),
+            )
+            .map_err(|_| GlyphLoadingError::PlatformError)?;
         outline_sink
             .0
             .lock()
@@ -318,16 +324,16 @@ impl Font {
     pub fn typographic_bounds(&self, glyph_id: u32) -> Result<RectF, GlyphLoadingError> {
         let metrics = self
             .dwrite_font_face
-            .get_design_glyph_metrics(&[glyph_id as u16], false);
+            .design_glyph_metrics(&[glyph_id as u16], false)?;
 
         let metrics = &metrics[0];
         let advance_width = metrics.advanceWidth as i32;
         let advance_height = metrics.advanceHeight as i32;
-        let left_side_bearing = metrics.leftSideBearing as i32;
-        let right_side_bearing = metrics.rightSideBearing as i32;
-        let top_side_bearing = metrics.topSideBearing as i32;
-        let bottom_side_bearing = metrics.bottomSideBearing as i32;
-        let vertical_origin_y = metrics.verticalOriginY as i32;
+        let left_side_bearing = metrics.leftSideBearing;
+        let right_side_bearing = metrics.rightSideBearing;
+        let top_side_bearing = metrics.topSideBearing;
+        let bottom_side_bearing = metrics.bottomSideBearing;
+        let vertical_origin_y = metrics.verticalOriginY;
 
         let y_offset = vertical_origin_y + bottom_side_bearing - advance_height;
         let width = advance_width - (left_side_bearing + right_side_bearing);
@@ -345,7 +351,7 @@ impl Font {
     pub fn advance(&self, glyph_id: u32) -> Result<Vector2F, GlyphLoadingError> {
         let metrics = self
             .dwrite_font_face
-            .get_design_glyph_metrics(&[glyph_id as u16], false);
+            .design_glyph_metrics(&[glyph_id as u16], false)?;
         let metrics = &metrics[0];
         Ok(Vector2F::new(metrics.advanceWidth as f32, 0.0))
     }
@@ -354,7 +360,7 @@ impl Font {
     pub fn origin(&self, glyph: u32) -> Result<Vector2F, GlyphLoadingError> {
         let metrics = self
             .dwrite_font_face
-            .get_design_glyph_metrics(&[glyph as u16], false);
+            .design_glyph_metrics(&[glyph as u16], false)?;
         Ok(Vector2I::new(
             metrics[0].leftSideBearing,
             metrics[0].verticalOriginY + metrics[0].bottomSideBearing,
@@ -391,9 +397,11 @@ impl Font {
             DWriteFontMetrics::Metrics0(metrics) => {
                 let bounding_box = match self
                     .dwrite_font_face
-                    .get_font_table(OPENTYPE_TABLE_TAG_HEAD.swap_bytes())
+                    .font_table(OPENTYPE_TABLE_TAG_HEAD.swap_bytes())
+                    .ok()
+                    .flatten()
                 {
-                    Some(head) => {
+                    Some(head) if head.len() >= 44 => {
                         let mut reader = &head[36..];
                         let x_min = reader.read_i16::<BigEndian>().unwrap();
                         let y_min = reader.read_i16::<BigEndian>().unwrap();
@@ -406,6 +414,7 @@ impl Font {
                         .to_f32()
                     }
                     None => RectF::default(),
+                    Some(_) => RectF::default(),
                 };
                 Metrics {
                     units_per_em: metrics.designUnitsPerEm as u32,
@@ -436,11 +445,14 @@ impl Font {
     /// collection.
     pub fn copy_font_data(&self) -> Option<Arc<Vec<u8>>> {
         let mut font_data = self.cached_data.lock().unwrap();
-        if font_data.is_none() {
-            let files = self.dwrite_font_face.get_files();
+        if font_data.is_none()
+            && let Ok(files) = self.dwrite_font_face.files()
+        {
             // FIXME(pcwalton): Is this right? When can a font have multiple files?
-            if let Some(file) = files.get(0) {
-                *font_data = Some(Arc::new(file.get_font_file_bytes()))
+            if let Some(file) = files.first()
+                && let Ok(bytes) = file.font_file_bytes()
+            {
+                *font_data = Some(Arc::new(bytes))
             }
         }
         (*font_data).clone()
@@ -539,11 +551,10 @@ impl Font {
         let texture_size = Vector2I::new(texture_width, texture_height);
         let texture_stride = texture_width as usize * texture_bytes_per_pixel;
 
-        let mut texture_bytes =
-            dwrite_analysis.create_alpha_texture(texture_type, texture_bounds)?;
+        let texture_bytes = dwrite_analysis.create_alpha_texture(texture_type, texture_bounds)?;
         canvas.blit_from(
             Vector2I::new(texture_bounds.left, texture_bounds.top),
-            &mut texture_bytes,
+            &texture_bytes,
             texture_size,
             texture_stride,
             texture_format,
@@ -689,7 +700,9 @@ impl Font {
     /// [OpenType specification]: https://docs.microsoft.com/en-us/typography/opentype/spec/
     pub fn load_font_table(&self, table_tag: u32) -> Option<Box<[u8]>> {
         self.dwrite_font_face
-            .get_font_table(table_tag.swap_bytes())
+            .font_table(table_tag.swap_bytes())
+            .ok()
+            .flatten()
             .map(|v| v.into())
     }
 }
@@ -749,8 +762,10 @@ impl Loader for Font {
     }
 
     #[inline]
-    unsafe fn from_native_font(native_font: Self::NativeFont) -> Self {
-        Font::from_native_font(native_font)
+    unsafe fn from_native_font(native_font: &Self::NativeFont) -> Self {
+        // SAFETY: The trait caller upholds `Loader::from_native_font`'s contract, which matches
+        // `Font::from_native_font`.
+        unsafe { Font::from_native_font(native_font) }
     }
 
     #[inline]
@@ -878,6 +893,42 @@ impl Loader for Font {
     #[inline]
     fn load_font_table(&self, table_tag: u32) -> Option<Box<[u8]>> {
         self.load_font_table(table_tag)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn directwrite_loader_does_not_unwrap_recoverable_table_or_file_api_failures() {
+        let source = include_str!("directwrite.rs");
+        let metrics_table_unwrap = concat!(
+            ".font_table(OPENTYPE_TABLE_TAG_HEAD.swap_bytes())",
+            "\n",
+            "                    .unwrap()"
+        );
+        let files_unwrap = concat!("self.dwrite_font_face.files()", ".unwrap()");
+        let bytes_unwrap = concat!("file.font_file_bytes()", ".unwrap()");
+        let collapsible_copy_font_data_branch = concat!(
+            "if font_data.is_none() {\n",
+            "            if let Ok(files) = self.dwrite_font_face.files() {"
+        );
+
+        assert!(
+            !source.contains(metrics_table_unwrap),
+            "DirectWrite FontFace::font_table returns Result and should not be unwrapped"
+        );
+        assert!(
+            !source.contains(files_unwrap),
+            "DirectWrite FontFace::files returns Result and should not be unwrapped"
+        );
+        assert!(
+            !source.contains(bytes_unwrap),
+            "DirectWrite FontFile::font_file_bytes returns Result and should not be unwrapped"
+        );
+        assert!(
+            !source.contains(collapsible_copy_font_data_branch),
+            "DirectWrite copy_font_data should remain compatible with clippy -D warnings"
+        );
     }
 }
 

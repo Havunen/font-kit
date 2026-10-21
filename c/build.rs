@@ -8,13 +8,13 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use cbindgen;
 use std::env;
 use std::fs;
 
 fn main() {
     fs::create_dir_all("build/include/font-kit").expect("Failed to create directories!");
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    cbindgen::generate(crate_dir).expect("cbindgen failed!")
-                                 .write_to_file("build/include/font-kit/font-kit.h");
+    cbindgen::generate(crate_dir)
+        .expect("cbindgen failed!")
+        .write_to_file("build/include/font-kit/font-kit.h");
 }

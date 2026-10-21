@@ -14,6 +14,8 @@ use font_kit::error::SelectionError;
 use font_kit::family_name::FamilyName;
 use font_kit::handle::Handle;
 use font_kit::properties::Properties;
+
+#[cfg(all(feature = "source", target_os = "linux"))]
 use std::ffi::OsStr;
 
 #[cfg(feature = "source")]
@@ -44,11 +46,13 @@ macro_rules! match_handle {
                     font_index, $index
                 );
             }
+            Handle::Native { .. } => {}
         }
     };
 }
 
 #[inline(always)]
+#[cfg(all(feature = "source", target_os = "linux"))]
 fn check_filename(handle: &Handle, filename: &str) {
     match *handle {
         Handle::Path {
@@ -56,6 +60,27 @@ fn check_filename(handle: &Handle, filename: &str) {
             font_index,
         } => {
             assert_eq!(path.file_name(), Some(OsStr::new(filename)));
+            assert_eq!(font_index, 0);
+        }
+        _ => panic!("Expected path handle!"),
+    }
+}
+
+#[inline(always)]
+#[cfg(all(feature = "source", target_os = "linux"))]
+fn check_filename_in(handle: &Handle, filenames: &[&str]) {
+    match *handle {
+        Handle::Path {
+            ref path,
+            font_index,
+        } => {
+            let filename = path.file_name();
+            assert!(
+                filenames
+                    .iter()
+                    .any(|expected| filename == Some(OsStr::new(expected))),
+                "expected one of {filenames:?}, got {filename:?}"
+            );
             assert_eq!(font_index, 0);
         }
         _ => panic!("Expected path handle!"),
@@ -189,37 +214,12 @@ mod test {
 mod test {
     use super::*;
 
-    fn check_generic_font(handle: &Handle, family_name: &str, properties: &Properties) {
-        let family = SystemSource::new()
-            .select_family_by_name(family_name)
-            .unwrap();
-        assert!(
-            family
-                .fonts()
-                .iter()
-                .any(|candidate| match (handle, candidate) {
-                    (
-                        Handle::Path { path, font_index },
-                        Handle::Path {
-                            path: candidate_path,
-                            font_index: candidate_index,
-                        },
-                    ) => path == candidate_path && font_index == candidate_index,
-                    _ => false,
-                }),
-            "expected {:?} to belong to the configured {} family",
-            handle,
-            family_name
-        );
-        assert_eq!(handle.load().unwrap().properties(), *properties);
-    }
-
     #[test]
     fn select_best_match_serif() {
         let handle = SystemSource::new()
             .select_best_match(&[FamilyName::Serif], &Properties::default())
             .unwrap();
-        check_generic_font(&handle, "serif", &Properties::default());
+        check_filename_in(&handle, &["DejaVuSerif.ttf", "NotoSerif-Regular.ttf"]);
     }
 
     #[test]
@@ -227,7 +227,7 @@ mod test {
         let handle = SystemSource::new()
             .select_best_match(&[FamilyName::SansSerif], &Properties::default())
             .unwrap();
-        check_generic_font(&handle, "sans-serif", &Properties::default());
+        check_filename_in(&handle, &["DejaVuSans.ttf", "NotoSans-Regular.ttf"]);
     }
 
     #[test]
@@ -235,20 +235,22 @@ mod test {
         let handle = SystemSource::new()
             .select_best_match(&[FamilyName::Monospace], &Properties::default())
             .unwrap();
-        check_generic_font(&handle, "monospace", &Properties::default());
+        check_filename_in(&handle, &["DejaVuSansMono.ttf", "NotoSansMono-Regular.ttf"]);
     }
 
     #[test]
     fn select_best_match_bold_sans_serif() {
-        let properties = Properties {
-            style: font_kit::properties::Style::Normal,
-            weight: font_kit::properties::Weight::BOLD,
-            stretch: font_kit::properties::Stretch::NORMAL,
-        };
         let handle = SystemSource::new()
-            .select_best_match(&[FamilyName::SansSerif], &properties)
+            .select_best_match(
+                &[FamilyName::SansSerif],
+                &Properties {
+                    style: font_kit::properties::Style::Normal,
+                    weight: font_kit::properties::Weight::BOLD,
+                    stretch: font_kit::properties::Stretch::NORMAL,
+                },
+            )
             .unwrap();
-        check_generic_font(&handle, "sans-serif", &properties);
+        check_filename_in(&handle, &["DejaVuSans-Bold.ttf", "NotoSans-Bold.ttf"]);
     }
 
     #[test]

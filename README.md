@@ -111,6 +111,12 @@ included.
 
 `sudo apt install pkg-config libfreetype6-dev libfontconfig1-dev`
 
+By default, Linux builds link against the system FreeType library. If the
+system FreeType is too old for `freetype-sys`, enable the `freetype-bundled`
+Cargo feature to build the vendored FreeType copy instead:
+
+`font-kit = { version = "0.14.3", features = ["freetype-bundled"] }`
+
 ## License
 
 `font-kit` is licensed under the same terms as Rust itself.

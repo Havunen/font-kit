@@ -107,6 +107,6 @@ impl Error for SelectionError {}
 
 impl_display! { SelectionError, {
         NotFound => "no font found",
-        CannotAccessSource { reason: ref maybe_cow } => maybe_cow.as_deref().unwrap_or("failed to access source")
+        CannotAccessSource { reason: maybe_cow } => maybe_cow.as_deref().unwrap_or("failed to access source")
     }
 }

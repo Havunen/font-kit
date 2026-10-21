@@ -163,10 +163,10 @@ impl FontconfigSource {
             .sorted(&self.config)
             .map_err(|_| SelectionError::NotFound)?;
 
-        if let Some(patt) = patterns.into_iter().next() {
-            if let Some(family) = patt.get_string(fc::Object::Family) {
-                return Ok(family);
-            }
+        if let Some(patt) = patterns.into_iter().next()
+            && let Some(family) = patt.get_string(fc::Object::Family)
+        {
+            return Ok(family);
         }
 
         Err(SelectionError::NotFound)

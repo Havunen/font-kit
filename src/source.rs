@@ -49,21 +49,21 @@ pub use crate::sources::fs::FsSource as SystemSource;
 
 // FIXME(pcwalton): These could expand to multiple fonts, and they could be language-specific.
 #[cfg(any(target_family = "windows", target_os = "macos", target_os = "ios"))]
-const DEFAULT_FONT_FAMILY_SERIF: &'static str = "Times New Roman";
+const DEFAULT_FONT_FAMILY_SERIF: &str = "Times New Roman";
 #[cfg(any(target_family = "windows", target_os = "macos", target_os = "ios"))]
-const DEFAULT_FONT_FAMILY_SANS_SERIF: &'static str = "Arial";
+const DEFAULT_FONT_FAMILY_SANS_SERIF: &str = "Arial";
 #[cfg(target_env = "ohos")]
 const DEFAULT_FONT_FAMILY_SANS_SERIF: &str = "HarmonyOS Sans";
 #[cfg(any(target_family = "windows", target_os = "macos", target_os = "ios"))]
-const DEFAULT_FONT_FAMILY_MONOSPACE: &'static str = "Courier New";
+const DEFAULT_FONT_FAMILY_MONOSPACE: &str = "Courier New";
 #[cfg(target_env = "ohos")]
 const DEFAULT_FONT_FAMILY_MONOSPACE: &str = "HarmonyOS Sans";
 #[cfg(any(target_family = "windows", target_os = "macos", target_os = "ios"))]
-const DEFAULT_FONT_FAMILY_CURSIVE: &'static str = "Comic Sans MS";
+const DEFAULT_FONT_FAMILY_CURSIVE: &str = "Comic Sans MS";
 #[cfg(target_family = "windows")]
-const DEFAULT_FONT_FAMILY_FANTASY: &'static str = "Impact";
+const DEFAULT_FONT_FAMILY_FANTASY: &str = "Impact";
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-const DEFAULT_FONT_FAMILY_FANTASY: &'static str = "Papyrus";
+const DEFAULT_FONT_FAMILY_FANTASY: &str = "Papyrus";
 
 #[cfg(not(any(target_family = "windows", target_os = "macos", target_os = "ios")))]
 const DEFAULT_FONT_FAMILY_SERIF: &str = "serif";
@@ -106,14 +106,14 @@ pub trait Source: Any {
     fn select_by_postscript_name(&self, postscript_name: &str) -> Result<Handle, SelectionError> {
         // TODO(pcwalton): Optimize this by searching for families with similar names first.
         for family_name in self.all_families()? {
-            if let Ok(family_handle) = self.select_family_by_name(&family_name) {
-                if let Ok(family) = Family::<Font>::from_handle(&family_handle) {
-                    for (handle, font) in family_handle.fonts().iter().zip(family.fonts().iter()) {
-                        if let Some(font_postscript_name) = font.postscript_name() {
-                            if font_postscript_name == postscript_name {
-                                return Ok((*handle).clone());
-                            }
-                        }
+            if let Ok(family_handle) = self.select_family_by_name(&family_name)
+                && let Ok(family) = Family::<Font>::from_handle(&family_handle)
+            {
+                for (handle, font) in family_handle.fonts().iter().zip(family.fonts().iter()) {
+                    if let Some(font_postscript_name) = font.postscript_name()
+                        && font_postscript_name == postscript_name
+                    {
+                        return Ok((*handle).clone());
                     }
                 }
             }

@@ -1,6 +1,6 @@
 [package]
 name = "font-kit"
-version = "0.14.3"
+version = "0.14.3-1"
 authors = ["Patrick Walton <pcwalton@mimiga.net>"]
 description = "A cross-platform font loading library"
 license = "MIT OR Apache-2.0"
@@ -8,12 +8,13 @@ readme = "README.md"
 repository = "https://github.com/servo/font-kit"
 homepage = "https://github.com/servo/font-kit"
 exclude = ["resources/**"]
-edition = "2018"
-rust-version = "1.77"
+edition = "2024"
+rust-version = "1.93"
 
 [features]
 default = ["source"]
 loader-freetype = ["freetype-sys"]
+freetype-bundled = ["freetype-sys?/bundled"]
 loader-freetype-default = ["loader-freetype"]
 source-fontconfig = ["yeslogic-fontconfig-sys"]
 source-fontconfig-dlopen = ["yeslogic-fontconfig-sys/dlopen"]
@@ -21,11 +22,11 @@ source-fontconfig-default = ["source-fontconfig"]
 source = []
 
 [dependencies]
-bitflags = "2.13"
+bitflags = "2.11"
 byteorder = "1.5"
 float-ord = "0.3"
 libc = "0.2"
-log = "0.4.34"
+log = "0.4.29"
 pathfinder_geometry = "0.5"
 pathfinder_simd = "0.5.6"
 freetype-sys = {version = "0.23", optional = true}
@@ -36,7 +37,7 @@ optional = true
 
 [dev-dependencies]
 clap = "4"
-colored = "2"
+colored = "3"
 pbr = "1.1"
 prettytable-rs = "0.10"
 
@@ -49,17 +50,18 @@ features = ["dwrite", "minwindef", "sysinfoapi", "winbase", "winnt"]
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 core-foundation = "0.10"
+# Upgraded to 0.25 to match core-text 21.1.0 which requires core-graphics 0.25
 core-graphics = "0.25"
-core-text = "22.0.0"
+core-text = "22"
 
 [target.'cfg(not(any(target_family = "windows", target_os = "macos", target_os = "ios")))'.dependencies]
 freetype-sys = "0.23"
 
-[target.'cfg(not(any(target_family = "windows", target_os = "android", target_os = "macos", target_os = "ios", target_arch = "wasm32", target_env = "ohos")))'.dependencies]
+[target.'cfg(not(any(target_family = "windows", target_os = "macos", target_os = "ios", target_arch = "wasm32", target_env = "ohos")))'.dependencies]
 yeslogic-fontconfig-sys = "6.0"
 
 [target.'cfg(not(any(target_arch = "wasm32", target_family = "windows", target_os = "android", target_env = "ohos")))'.dependencies]
-dirs = "7.0"
+dirs = "6.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 walkdir = "2.5"
