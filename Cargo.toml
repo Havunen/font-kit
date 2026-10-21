@@ -9,7 +9,7 @@ repository = "https://github.com/servo/font-kit"
 homepage = "https://github.com/servo/font-kit"
 exclude = ["resources/**"]
 edition = "2024"
-rust-version = "1.93"
+rust-version = "1.99"
 
 [features]
 default = ["source"]
@@ -22,11 +22,11 @@ source-fontconfig-default = ["source-fontconfig"]
 source = []
 
 [dependencies]
-bitflags = "2.11"
+bitflags = "2.13"
 byteorder = "1.5"
 float-ord = "0.3"
 libc = "0.2"
-log = "0.4.29"
+log = "0.4.34"
 pathfinder_geometry = "0.5"
 pathfinder_simd = "0.5.6"
 freetype-sys = {version = "0.23", optional = true}
