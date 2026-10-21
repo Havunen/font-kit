@@ -176,7 +176,10 @@ pub fn get_glyph_outline() {
 #[test]
 pub fn get_glyph_outline() {
     let font = SystemSource::new()
-        .select_best_match(&[FamilyName::SansSerif], &Properties::new())
+        .select_best_match(
+            &[FamilyName::Title("DejaVu Sans".to_string())],
+            &Properties::new(),
+        )
         .unwrap()
         .load()
         .unwrap();
@@ -267,7 +270,10 @@ pub fn get_vertically_hinted_glyph_outline() {
 #[test]
 pub fn get_vertically_hinted_glyph_outline() {
     let font = SystemSource::new()
-        .select_best_match(&[FamilyName::SansSerif], &Properties::new())
+        .select_best_match(
+            &[FamilyName::Title("DejaVu Sans".to_string())],
+            &Properties::new(),
+        )
         .unwrap()
         .load()
         .unwrap();
@@ -497,7 +503,10 @@ pub fn get_glyph_typographic_bounds() {
 #[test]
 pub fn get_glyph_typographic_bounds() {
     let font = SystemSource::new()
-        .select_best_match(&[FamilyName::SansSerif], &Properties::new())
+        .select_best_match(
+            &[FamilyName::Title("DejaVu Sans".to_string())],
+            &Properties::new(),
+        )
         .unwrap()
         .load()
         .unwrap();
@@ -544,7 +553,10 @@ pub fn get_glyph_advance_and_origin() {
 #[test]
 pub fn get_glyph_advance_and_origin() {
     let font = SystemSource::new()
-        .select_best_match(&[FamilyName::SansSerif], &Properties::new())
+        .select_best_match(
+            &[FamilyName::Title("DejaVu Sans".to_string())],
+            &Properties::new(),
+        )
         .unwrap()
         .load()
         .unwrap();
@@ -587,7 +599,10 @@ pub fn get_font_metrics() {
 #[test]
 pub fn get_font_metrics() {
     let font = SystemSource::new()
-        .select_best_match(&[FamilyName::SansSerif], &Properties::new())
+        .select_best_match(
+            &[FamilyName::Title("DejaVu Sans".to_string())],
+            &Properties::new(),
+        )
         .unwrap()
         .load()
         .unwrap();

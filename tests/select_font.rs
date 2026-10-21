@@ -189,12 +189,37 @@ mod test {
 mod test {
     use super::*;
 
+    fn check_generic_font(handle: &Handle, family_name: &str, properties: &Properties) {
+        let family = SystemSource::new()
+            .select_family_by_name(family_name)
+            .unwrap();
+        assert!(
+            family
+                .fonts()
+                .iter()
+                .any(|candidate| match (handle, candidate) {
+                    (
+                        Handle::Path { path, font_index },
+                        Handle::Path {
+                            path: candidate_path,
+                            font_index: candidate_index,
+                        },
+                    ) => path == candidate_path && font_index == candidate_index,
+                    _ => false,
+                }),
+            "expected {:?} to belong to the configured {} family",
+            handle,
+            family_name
+        );
+        assert_eq!(handle.load().unwrap().properties(), *properties);
+    }
+
     #[test]
     fn select_best_match_serif() {
         let handle = SystemSource::new()
             .select_best_match(&[FamilyName::Serif], &Properties::default())
             .unwrap();
-        check_filename(&handle, "DejaVuSerif.ttf");
+        check_generic_font(&handle, "serif", &Properties::default());
     }
 
     #[test]
@@ -202,7 +227,7 @@ mod test {
         let handle = SystemSource::new()
             .select_best_match(&[FamilyName::SansSerif], &Properties::default())
             .unwrap();
-        check_filename(&handle, "DejaVuSans.ttf");
+        check_generic_font(&handle, "sans-serif", &Properties::default());
     }
 
     #[test]
@@ -210,22 +235,20 @@ mod test {
         let handle = SystemSource::new()
             .select_best_match(&[FamilyName::Monospace], &Properties::default())
             .unwrap();
-        check_filename(&handle, "DejaVuSansMono.ttf");
+        check_generic_font(&handle, "monospace", &Properties::default());
     }
 
     #[test]
     fn select_best_match_bold_sans_serif() {
+        let properties = Properties {
+            style: font_kit::properties::Style::Normal,
+            weight: font_kit::properties::Weight::BOLD,
+            stretch: font_kit::properties::Stretch::NORMAL,
+        };
         let handle = SystemSource::new()
-            .select_best_match(
-                &[FamilyName::SansSerif],
-                &Properties {
-                    style: font_kit::properties::Style::Normal,
-                    weight: font_kit::properties::Weight::BOLD,
-                    stretch: font_kit::properties::Stretch::NORMAL,
-                },
-            )
+            .select_best_match(&[FamilyName::SansSerif], &properties)
             .unwrap();
-        check_filename(&handle, "DejaVuSans-Bold.ttf");
+        check_generic_font(&handle, "sans-serif", &properties);
     }
 
     #[test]
